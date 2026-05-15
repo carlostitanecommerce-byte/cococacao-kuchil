@@ -1,0 +1,1 @@
+ALTER TYPE public.coworking_estado ADD VALUE IF NOT EXISTS 'pendiente_pago';

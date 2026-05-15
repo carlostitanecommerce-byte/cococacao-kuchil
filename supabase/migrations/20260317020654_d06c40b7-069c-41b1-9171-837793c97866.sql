@@ -1,0 +1,1 @@
+ALTER TABLE public.cajas ADD COLUMN notas_cierre text DEFAULT NULL;

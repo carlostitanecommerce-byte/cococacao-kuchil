@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS trigger_descontar_inventario ON public.detalle_ventas;

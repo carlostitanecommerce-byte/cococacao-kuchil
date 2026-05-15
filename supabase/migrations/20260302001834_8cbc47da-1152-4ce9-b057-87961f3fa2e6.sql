@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN password_visible text DEFAULT null;

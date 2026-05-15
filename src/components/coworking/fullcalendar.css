@@ -1,0 +1,48 @@
+.fullcalendar-wrapper .fc {
+  --fc-border-color: hsl(var(--border));
+  --fc-button-bg-color: hsl(var(--primary));
+  --fc-button-border-color: hsl(var(--primary));
+  --fc-button-hover-bg-color: hsl(var(--primary) / 0.85);
+  --fc-button-hover-border-color: hsl(var(--primary) / 0.85);
+  --fc-button-active-bg-color: hsl(var(--primary) / 0.75);
+  --fc-button-active-border-color: hsl(var(--primary) / 0.75);
+  --fc-today-bg-color: hsl(var(--accent) / 0.1);
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: hsl(var(--muted));
+  --fc-event-border-color: transparent;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+}
+
+.fullcalendar-wrapper .fc .fc-toolbar-title {
+  font-family: var(--font-heading);
+  font-size: 1.15rem;
+  color: hsl(var(--foreground));
+}
+
+.fullcalendar-wrapper .fc .fc-col-header-cell-cushion,
+.fullcalendar-wrapper .fc .fc-daygrid-day-number {
+  color: hsl(var(--foreground));
+}
+
+.fullcalendar-wrapper .fc .fc-button {
+  font-size: 0.8rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.fullcalendar-wrapper .fc .fc-event {
+  border-radius: calc(var(--radius) - 4px);
+  padding: 1px 4px;
+  font-size: 0.75rem;
+  cursor: default;
+}
+
+.fullcalendar-wrapper .fc .fc-daygrid-day.fc-day-today {
+  background-color: hsl(var(--accent) / 0.08);
+}
+
+.fullcalendar-wrapper .fc th {
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
