@@ -1,80 +1,59 @@
-## Diagnóstico
 
-El error nuevo confirma una causa distinta a la primera pantalla blanca:
+# Auditoría y solución definitiva: pantalla "Configuración incompleta" en producción
 
+## Diagnóstico (causa raíz)
+
+1. `src/integrations/supabase/client.ts` (auto-generado, no editable) crea el cliente con `import.meta.env.VITE_SUPABASE_URL` e `import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY`. Vite **inlinea** esas variables en el bundle **en tiempo de build**.
+2. Esos valores viven en `.env`, que está listado en `.gitignore` (líneas 26-28). En la previsualización Lovable inyecta `.env` en el sandbox, por eso funciona. En el pipeline de publicación a `cococacao-kuchil.lovable.app` el `.env` no siempre llega, así que Vite reemplaza las variables por `undefined` y el bundle queda con `createClient(undefined, undefined, …)` → error `supabaseUrl is required` → pantalla blanca.
+3. El parche actual en `src/main.tsx` solo cambia la pantalla blanca por la tarjeta "Configuración incompleta", pero no resuelve la raíz: el build sigue saliendo sin credenciales.
+4. No podemos editar `.gitignore` (Lovable lo bloquea) ni `src/integrations/supabase/client.ts` (auto-generado).
+
+## Solución profesional
+
+Inyectar los valores **públicos** (URL del proyecto, anon key y project ID son publicables — los maneja el navegador) como **defaults a nivel de build** desde `vite.config.ts`, usando la opción `define` de Vite. Así:
+
+- En desarrollo y en el sandbox de Lovable, si existe `.env`, esos valores tienen prioridad (comportamiento actual sin cambios).
+- En el build publicado, si Lovable no entrega `.env`, Vite usa los valores hardcoded de respaldo y el bundle siempre arranca.
+- `src/integrations/supabase/client.ts` no se toca; sigue leyendo `import.meta.env.VITE_SUPABASE_URL` como antes.
+- La pantalla defensiva de `src/main.tsx` se conserva como red de seguridad, pero ya no debería activarse.
+
+Los valores que se embeben son los mismos que ya están expuestos al navegador (anon key con RLS activa), no se filtra ningún secreto.
+
+## Cambios concretos
+
+### 1. `vite.config.ts`
+Calcular un objeto `defines` con las tres variables `VITE_SUPABASE_*`:
+- Prioridad: `process.env[KEY]` → `env[KEY]` (de `loadEnv`) → fallback hardcoded del proyecto Lovable Cloud actual.
+- Pasarlo a Vite vía `define: { "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(...), ... }`.
+- Quitar el `console.warn` actual (ya no aplica, siempre habrá valor).
+
+Fallbacks que se incluyen:
 ```text
-Uncaught Error: supabaseUrl is required.
+VITE_SUPABASE_URL            = https://zidlmhqzyffrrsqhdfib.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY = (anon JWT del proyecto, ya público)
+VITE_SUPABASE_PROJECT_ID     = zidlmhqzyffrrsqhdfib
 ```
 
-Eso ocurre cuando el build publicado ejecuta el cliente de backend con `VITE_SUPABASE_URL` vacío/undefined. La preview interna sí funciona porque ahí el entorno de desarrollo sí tiene esas variables; el dominio publicado está usando un build donde las variables de Lovable Cloud no quedaron inyectadas correctamente.
+### 2. `src/main.tsx`
+Conservar la validación defensiva y la pantalla de error como salvaguarda; no requiere cambios funcionales.
 
-## Objetivo
+### 3. Sin tocar
+- `src/integrations/supabase/client.ts` (auto-generado).
+- `src/integrations/supabase/types.ts`.
+- `.env`, `.gitignore`, `supabase/config.toml`.
+- Edge functions (usan `Deno.env`, ya funcionan con secretos del proyecto).
 
-1. Recuperar el app publicado para que cargue normalmente.
-2. Evitar que futuros builds se publiquen “rotos” y terminen en pantalla blanca.
-3. Mantener la integración de Lovable Cloud segura, sin tocar archivos autogenerados ni guardar llaves privadas en código.
+## Verificación post-cambio
 
-## Plan de resolución
+1. Publicar (Publish → Update) para regenerar el bundle.
+2. Abrir `https://cococacao-kuchil.lovable.app/login` en una ventana de incógnito:
+   - Debe cargar el login normalmente.
+   - Consola sin `supabaseUrl is required`.
+   - Network: la primera petición a `https://zidlmhqzyffrrsqhdfib.supabase.co/auth/v1/...` debe responder 200/401 (no error de URL).
+3. Probar login con cuenta válida y navegar a una ruta protegida para confirmar sesión.
 
-### 1. Validación profesional en tiempo de build
+## Por qué no volverá a ocurrir
 
-Agregar una validación en `vite.config.ts` para producción que revise estas variables antes de compilar:
-
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
-- `VITE_SUPABASE_PROJECT_ID`
-
-Si falta alguna, el build debe fallar con un error claro, por ejemplo:
-
-```text
-Missing Lovable Cloud build environment variables: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY
-```
-
-Así no vuelve a generarse un deploy aparentemente exitoso pero inutilizable.
-
-### 2. Pantalla de error controlada en runtime
-
-Modificar `src/main.tsx` para hacer una verificación temprana antes de importar el resto del app.
-
-Actualmente `App.tsx` importa módulos que usan el cliente de backend, y si falta `VITE_SUPABASE_URL`, React ni siquiera alcanza a renderizar. La solución será cargar `App` de forma diferida solo después de confirmar que el entorno existe.
-
-Si el entorno está incompleto, se mostrará una pantalla controlada con un mensaje claro de configuración, no una pantalla blanca.
-
-### 3. No tocar archivos autogenerados
-
-No se modificará:
-
-- `src/integrations/supabase/client.ts`
-- `src/integrations/supabase/types.ts`
-- `.env`
-
-Estos archivos son administrados automáticamente por Lovable Cloud.
-
-### 4. Recuperar el deploy publicado
-
-Después del cambio, hay que regenerar el build publicado con **Publish → Update**.
-
-Resultado esperado:
-
-- Si Lovable Cloud ya entrega bien las variables al build: el app carga normalmente.
-- Si el entorno de publicación sigue roto: el build falla con un error claro antes de publicar, en lugar de subir una pantalla blanca.
-
-En ese segundo caso, el siguiente paso correcto sería refrescar/revisar la conexión de Lovable Cloud desde el proyecto y volver a publicar.
-
-### 5. Verificación final
-
-Después de republicar, validaré:
-
-- Que el dominio publicado ya no arroje `supabaseUrl is required`.
-- Que el HTML publicado incluya el bundle correcto.
-- Que `/login` renderice la pantalla de inicio de sesión.
-- Que una recarga limpia del navegador no deje la app en blanco.
-
-## Archivos a cambiar
-
-- `vite.config.ts` — validación de variables requeridas en producción.
-- `src/main.tsx` — arranque defensivo para evitar pantalla blanca si falta configuración.
-
-## Resultado esperado
-
-El app dejará de fallar silenciosamente en blanco. Si la configuración de publicación vuelve a romperse, el problema quedará bloqueado antes del deploy o mostrado con un mensaje claro en pantalla, permitiendo corregirlo sin afectar operación.
+- El bundle ya no depende de variables externas en tiempo de publicación: los valores quedan embebidos como literales por Vite.
+- Cualquier futura regeneración de `client.ts` mantiene la misma firma (`import.meta.env.VITE_SUPABASE_URL`), que ahora Vite siempre puede resolver.
+- Si en el futuro se migra a otro proyecto de Lovable Cloud, basta actualizar los tres literales del `define` (o seguir usando `.env`, que sigue teniendo prioridad).
