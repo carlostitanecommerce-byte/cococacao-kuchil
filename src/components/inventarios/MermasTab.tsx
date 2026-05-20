@@ -91,15 +91,17 @@ const MermasTab = ({ isAdmin }: Props) => {
     );
   }, [mermas, busqueda]);
 
-  const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
-  const paginadas = filtradas.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtradas.length / porPagina));
+  const paginaSegura = Math.min(page, totalPages);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const paginadas = filtradas.slice(inicio, inicio + porPagina);
 
   const limpiarFiltros = () => {
     setBusqueda('');
     setInsumoFiltro('todos');
     setFechaDesde('');
     setFechaHasta('');
-    setPage(0);
+    setPage(1);
   };
 
   const hayFiltros = busqueda || insumoFiltro !== 'todos' || fechaDesde || fechaHasta;
