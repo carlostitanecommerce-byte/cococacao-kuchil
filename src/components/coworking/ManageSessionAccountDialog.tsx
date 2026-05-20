@@ -229,6 +229,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   }, [session?.id]);
 
   const sessionArea = session ? areas.find(a => a.id === session.area_id) : undefined;
+  const canEditPax = !!sessionArea?.es_privado;
 
   const handleSavePax = () => withLock(async () => {
     if (!session) return;
