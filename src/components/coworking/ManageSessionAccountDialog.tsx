@@ -513,16 +513,16 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       <AlertDialog open={!!pendingAmenityUpdate} onOpenChange={(open) => { if (!open) setPendingAmenityUpdate(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Actualizar amenities incluidos?</AlertDialogTitle>
+            <AlertDialogTitle>Ajustar amenities al nuevo pax</AlertDialogTitle>
             <AlertDialogDescription>
-              Cambiaste el pax de {pendingAmenityUpdate?.oldPax} a {pendingAmenityUpdate?.newPax}. ¿Deseas actualizar
-              también la cantidad de amenities incluidos según el nuevo número de personas?
-              Esta acción recalculará la cantidad gratis de cada amenity en la cuenta de la sesión.
+              El área es privada y las amenities incluidas están ligadas al pax. Se ajustarán
+              automáticamente de {pendingAmenityUpdate?.oldPax} → {pendingAmenityUpdate?.newPax} personas:
+              los incrementos se envían a cocina y los excedentes se registran como merma.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>No, dejar como está</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmAmenityRecalc}>Sí, actualizar amenities</AlertDialogAction>
+            <AlertDialogCancel>No ajustar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmAmenityRecalc}>Ajustar amenities</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
