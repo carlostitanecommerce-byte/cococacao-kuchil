@@ -121,7 +121,7 @@ const MermasTab = ({ isAdmin }: Props) => {
                 <Input
                   placeholder="Motivo, insumo, usuario…"
                   value={busqueda}
-                  onChange={e => { setBusqueda(e.target.value); setPage(0); }}
+                  onChange={e => { setBusqueda(e.target.value); setPage(1); }}
                   className="pl-9"
                 />
               </div>
