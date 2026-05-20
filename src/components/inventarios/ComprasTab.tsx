@@ -163,7 +163,7 @@ const ComprasTab = ({ isAdmin }: Props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, porPagina, fechaDesde, fechaHasta]);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / porPagina));
+  
 
   const resetForm = () => {
     setSelectedInsumoId('');
