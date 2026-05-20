@@ -61,7 +61,8 @@ const ComprasTab = ({ isAdmin }: Props) => {
   const [busqueda, setBusqueda] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1); // 1-based
+  const [porPagina, setPorPagina] = useState(50);
   const [totalCount, setTotalCount] = useState(0);
 
   // Form state
