@@ -352,7 +352,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
             <span>Cuenta de la sesión — {session.cliente_nombre}</span>
             <div className="flex items-center gap-1.5 ml-auto mr-8 text-sm font-normal">
               <Users className="h-4 w-4 text-muted-foreground" />
-              {isEditingPax ? (
+              {canEditPax && isEditingPax ? (
                 <>
                   <Input
                     type="number"
@@ -373,15 +373,17 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
               ) : (
                 <>
                   <span className="font-medium">{session.pax_count} pax</span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                    onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
-                    title="Editar pax"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
+                  {canEditPax && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
+                      title="Editar pax"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </>
               )}
             </div>
