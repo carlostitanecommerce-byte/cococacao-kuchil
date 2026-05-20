@@ -375,32 +375,14 @@ const ComprasTab = ({ isAdmin }: Props) => {
         </CardContent>
       </Card>
 
-      {/* Paginación */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">
-            Página {page + 1} de {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0 || loading}
-            >
-              Anterior
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1 || loading}
-            >
-              Siguiente
-            </Button>
-          </div>
-        </div>
-      )}
+      <DataPagination
+        paginaActual={page}
+        totalItems={totalCount}
+        porPagina={porPagina}
+        onPaginaChange={setPage}
+        onPorPaginaChange={(n) => { setPorPagina(n); setPage(1); }}
+        etiqueta="compras"
+      />
 
       {/* Dialog Registrar Compra */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
