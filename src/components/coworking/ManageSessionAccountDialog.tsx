@@ -229,9 +229,14 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   }, [session?.id]);
 
   const sessionArea = session ? areas.find(a => a.id === session.area_id) : undefined;
+  const canEditPax = !!sessionArea?.es_privado;
 
   const handleSavePax = () => withLock(async () => {
     if (!session) return;
+    if (!sessionArea?.es_privado) {
+      toast({ variant: 'destructive', title: 'No permitido', description: 'Solo las áreas privadas permiten editar el pax.' });
+      return;
+    }
     const pax = parseInt(tempPax, 10);
     if (isNaN(pax) || pax < 1) {
       toast({ variant: 'destructive', title: 'Pax inválido' });
@@ -347,7 +352,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
             <span>Cuenta de la sesión — {session.cliente_nombre}</span>
             <div className="flex items-center gap-1.5 ml-auto mr-8 text-sm font-normal">
               <Users className="h-4 w-4 text-muted-foreground" />
-              {isEditingPax ? (
+              {canEditPax && isEditingPax ? (
                 <>
                   <Input
                     type="number"
@@ -368,15 +373,17 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
               ) : (
                 <>
                   <span className="font-medium">{session.pax_count} pax</span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                    onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
-                    title="Editar pax"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
+                  {canEditPax && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
+                      title="Editar pax"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -506,16 +513,16 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       <AlertDialog open={!!pendingAmenityUpdate} onOpenChange={(open) => { if (!open) setPendingAmenityUpdate(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Actualizar amenities incluidos?</AlertDialogTitle>
+            <AlertDialogTitle>Ajustar amenities al nuevo pax</AlertDialogTitle>
             <AlertDialogDescription>
-              Cambiaste el pax de {pendingAmenityUpdate?.oldPax} a {pendingAmenityUpdate?.newPax}. ¿Deseas actualizar
-              también la cantidad de amenities incluidos según el nuevo número de personas?
-              Esta acción recalculará la cantidad gratis de cada amenity en la cuenta de la sesión.
+              El área es privada y las amenities incluidas están ligadas al pax. Se ajustarán
+              automáticamente de {pendingAmenityUpdate?.oldPax} → {pendingAmenityUpdate?.newPax} personas:
+              los incrementos se envían a cocina y los excedentes se registran como merma.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>No, dejar como está</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmAmenityRecalc}>Sí, actualizar amenities</AlertDialogAction>
+            <AlertDialogCancel>No ajustar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmAmenityRecalc}>Ajustar amenities</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

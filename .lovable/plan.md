@@ -1,63 +1,62 @@
-# Fix: botón "Entregado" en KDS falla con "Error al actualizar orden"
+# Fix: limitar edición de pax a áreas privadas + recálculo de amenities por pax
 
-## Diagnóstico
+## Contexto
 
-El botón **Entregado** del KDS (`KdsOrderCard`) dispara `handleDismiss` en `CocinaPage`:
+En `ManageSessionAccountDialog` (cuenta de una sesión activa) hay un botón de lápiz junto a `{pax} pax` que abre el editor inline para cambiar `pax_count`. Esto solo tiene sentido para **áreas privadas** (`areas_coworking.es_privado = true`), donde la tarifa cubre todo el espacio y el número de personas dentro puede variar durante la sesión.
 
-```ts
-const handleDismiss = (orderId: string) => updateEstado(orderId, 'expirada' as any);
-```
+En **áreas públicas** la tarifa es **por persona** y el pax queda fijado en el check-in: permitir editarlo aquí abre una vía para alterar la base de cobro y disparar recálculos de amenities incoherentes con la facturación por persona.
 
-`updateEstado` llama a la RPC `actualizar_estado_kds_orden(p_order_id, p_nuevo_estado)`, que tiene este guard:
-
-```sql
-IF p_nuevo_estado NOT IN ('pendiente', 'en_preparacion', 'listo') THEN
-  RAISE EXCEPTION 'Estado inválido: %', p_nuevo_estado;
-END IF;
-```
-
-El enum `kds_estado` ya incluye `expirada` como valor válido, pero la RPC lo rechaza. Por eso el `toast.error('Error al actualizar orden')` aparece justo al presionar **Entregado**, y la orden se queda en la columna "Listo" hasta que el auto-remove de 90s la limpia visualmente (sin registro en `audit_logs`).
+Adicionalmente, en áreas privadas las amenities incluidas son **por persona** (ej. 1 agua por pax). Cuando se edita el pax — pasar de 1 a 2, o de 3 a 2 — las amenities deben escalar en consecuencia automáticamente, sin requerir un paso manual.
 
 ## Solución
 
-Dos cambios pequeños y coordinados, sin tocar la UI:
+Cambios quirúrgicos, solo en el frontend de presentación + una validación defensiva en el handler. El recálculo de amenities ya existe vía RPC y se reutiliza tal cual.
 
-### 1. Migración DB — permitir `expirada` en la RPC
+### 1. UI — gatear el control de edición por `es_privado`
 
-Actualizar `public.actualizar_estado_kds_orden` para aceptar también `expirada` como estado destino válido. Es el estado terminal natural para "orden entregada / sacada del tablero" y ya existe en el enum, así que no requiere migración de datos.
+En `src/components/coworking/ManageSessionAccountDialog.tsx`:
 
-```sql
--- En la validación de la función:
-IF p_nuevo_estado NOT IN (
-  'pendiente'::kds_estado,
-  'en_preparacion'::kds_estado,
-  'listo'::kds_estado,
-  'expirada'::kds_estado
-) THEN
-  RAISE EXCEPTION 'Estado inválido: %', p_nuevo_estado;
-END IF;
+- Calcular `const canEditPax = !!sessionArea?.es_privado;` junto a `sessionArea` (línea ~231).
+- Mostrar el botón lápiz **y** la rama `isEditingPax` solo cuando `canEditPax` es `true`. En áreas públicas se sigue mostrando `{session.pax_count} pax` (lectura) pero sin el lápiz ni el input.
+- En áreas públicas el control simplemente desaparece, consistente con cómo el dashboard ya oculta acciones no disponibles.
+
+### 2. Defensa en `handleSavePax`
+
+Aunque la UI no exponga el botón, blindar el handler para evitar manipulación vía estado local:
+
+```ts
+if (!sessionArea?.es_privado) {
+  toast({ variant: 'destructive', title: 'No permitido', description: 'Solo las áreas privadas permiten editar el pax.' });
+  return;
+}
 ```
 
-El resto de la función (audit log, `updated_at`, duración) sigue igual — registra automáticamente la transición `listo → expirada` en `audit_logs` con el folio, lo que mejora la trazabilidad de entregas (hoy inexistente).
+Esto bloquea el `update` antes de tocar Supabase.
 
-### 2. Frontend — limpieza menor en `CocinaPage`
+### 3. Recálculo automático de amenities al cambiar pax (privadas)
 
-- Quitar el cast sucio `'expirada' as any` y tiparlo correctamente como `KdsEstado` (el tipo ya cubre el valor del enum).
-- Tras un dismiss exitoso, eliminar la orden de `orders` inmediatamente (en lugar de esperar el auto-remove de 90s sobre el estado `listo`). El query principal ya filtra por `pendiente/en_preparacion/listo` con ventana de 2 min, así que no reaparecerá en el siguiente fetch.
+Esta lógica **ya existe** en `handleSavePax` + `handleConfirmAmenityRecalc` (RPC `recalcular_amenities_pax`), que ajusta líneas de amenity en la cuenta, crea mermas si hay reducción y envía nuevas amenities al KDS si hay incremento. Se mantiene tal cual y queda restringida implícitamente a privadas porque solo desde privadas se puede llegar al handler.
 
-Sin cambios en `KdsOrderCard` ni en `KdsBoard`.
+Pequeño refuerzo de UX: dado que el recálculo es la consecuencia natural (no opcional) en una privada, el diálogo de confirmación `pendingAmenityUpdate` debe presentarse con copy explícito que comunique el ajuste 1:1 por pax, p. ej.:
+
+> "El área es privada y las amenities están ligadas al pax. Se actualizarán de N → M personas:
+> • +X agua (al KDS), -Y agua (a merma)…"
+
+Sin cambios funcionales en la RPC ni en la lógica de cálculo — solo el texto del `AlertDialog` para que el operador entienda la causa.
+
+### 4. Validación a nivel BD (defer)
+
+Hoy `coworking_sessions.pax_count` se actualiza con un `update` directo (no RPC), regulado solo por la RLS de "owner o admin". Un trigger que rechace cambios de `pax_count` cuando el área es pública sería el cierre profesional ideal, pero también afectaría flujos legítimos (admin corrigiendo, scripts). **No se incluye**: anotado como mejora futura.
 
 ## Validación
 
-1. Login como barista, abrir Cocina, llevar una orden hasta "Listo".
-2. Presionar **Entregado** → la tarjeta desaparece sin toast de error.
-3. Verificar en `audit_logs` un registro `kds_orden_estado` con `estado_anterior: listo`, `estado_nuevo: expirada`, folio correcto.
-4. Verificar que la orden no reaparezca tras un refetch (recargar la página).
-5. Verificar que `Revertir a "En preparación"` sigue funcionando (no fue tocado).
+1. Check-in en un área **pública** → abrir cuenta → lápiz **no aparece**; solo `N pax` en lectura.
+2. Check-in en un área **privada** con 1 pax y tarifa con 1 amenity por persona → editar a 2 pax → confirmar diálogo → la cuenta refleja 2 amenities, el KDS recibe la amenity adicional, no se crean mermas.
+3. Misma área privada con 3 pax → editar a 2 pax → confirmar → la cuenta reduce a 2 amenities, se registra 1 merma del amenity sobrante, KDS sin cambios.
+4. Resto del diálogo (cobros, agregar al POS, cancelaciones) sin cambios en ambos casos.
 
 ## Archivos afectados
 
 ```text
-~ supabase migration: actualizar función actualizar_estado_kds_orden
-~ src/pages/CocinaPage.tsx: tipar handleDismiss y limpiar orders tras éxito
+~ src/components/coworking/ManageSessionAccountDialog.tsx
 ```
