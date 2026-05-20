@@ -108,8 +108,8 @@ const ComprasTab = ({ isAdmin }: Props) => {
 
   const fetchData = async () => {
     setLoading(true);
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
+    const from = (page - 1) * porPagina;
+    const to = from + porPagina - 1;
 
     let comprasQuery = supabase
       .from('compras_insumos')
