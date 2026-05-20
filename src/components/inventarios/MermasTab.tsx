@@ -28,7 +28,7 @@ interface InsumoLite { id: string; nombre: string }
 
 interface Props { isAdmin: boolean }
 
-const PAGE_SIZE = 25;
+
 
 const MermasTab = ({ isAdmin }: Props) => {
   const [mermas, setMermas] = useState<MermaRow[]>([]);
