@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import CategoriasTab from '@/components/inventarios/CategoriasTab';
+import CategoriasManager from '@/components/categorias/CategoriasManager';
 import InsumosTab from '@/components/inventarios/InsumosTab';
 import ComprasTab from '@/components/inventarios/ComprasTab';
 import MermasTab from '@/components/inventarios/MermasTab';
@@ -32,7 +32,12 @@ const InventariosPage = () => {
         </TabsList>
 
         <TabsContent value="categorias" className="mt-4">
-          <CategoriasTab isAdmin={isAdmin} />
+          <CategoriasManager
+            isAdmin={isAdmin}
+            ambitos={['insumo']}
+            defaultAmbito="insumo"
+            titulo="Categorías de insumos"
+          />
         </TabsContent>
 
         <TabsContent value="insumos" className="mt-4">

@@ -1,59 +1,86 @@
+# Refactor: Categorías por dominio
 
-# Auditoría y solución definitiva: pantalla "Configuración incompleta" en producción
+## Objetivo
 
-## Diagnóstico (causa raíz)
+Hoy `CategoriasTab` vive en **Inventarios** y mezcla los tres ámbitos (`insumo`, `producto`, `paquete`) con un filtro interno. Esto rompe la coherencia del módulo: Inventarios debería tratar sólo insumos, y Menú es el dueño natural de productos y paquetes.
 
-1. `src/integrations/supabase/client.ts` (auto-generado, no editable) crea el cliente con `import.meta.env.VITE_SUPABASE_URL` e `import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY`. Vite **inlinea** esas variables en el bundle **en tiempo de build**.
-2. Esos valores viven en `.env`, que está listado en `.gitignore` (líneas 26-28). En la previsualización Lovable inyecta `.env` en el sandbox, por eso funciona. En el pipeline de publicación a `cococacao-kuchil.lovable.app` el `.env` no siempre llega, así que Vite reemplaza las variables por `undefined` y el bundle queda con `createClient(undefined, undefined, …)` → error `supabaseUrl is required` → pantalla blanca.
-3. El parche actual en `src/main.tsx` solo cambia la pantalla blanca por la tarjeta "Configuración incompleta", pero no resuelve la raíz: el build sigue saliendo sin credenciales.
-4. No podemos editar `.gitignore` (Lovable lo bloquea) ni `src/integrations/supabase/client.ts` (auto-generado).
+Resultado esperado:
 
-## Solución profesional
+- **Inventarios** → pestaña "Categorías" gestiona **solo insumos**, sin sub-pestañas de ámbito.
+- **Menú** → nueva pestaña "Categorías" (la primera, a la izquierda) que gestiona **productos y paquetes**, con pestañitas internas "Productos / Paquetes" (como las actuales en Inventarios).
+- Cero pérdida de datos ni cambios en `categorias_maestras`.
 
-Inyectar los valores **públicos** (URL del proyecto, anon key y project ID son publicables — los maneja el navegador) como **defaults a nivel de build** desde `vite.config.ts`, usando la opción `define` de Vite. Así:
+## Cambios funcionales
 
-- En desarrollo y en el sandbox de Lovable, si existe `.env`, esos valores tienen prioridad (comportamiento actual sin cambios).
-- En el build publicado, si Lovable no entrega `.env`, Vite usa los valores hardcoded de respaldo y el bundle siempre arranca.
-- `src/integrations/supabase/client.ts` no se toca; sigue leyendo `import.meta.env.VITE_SUPABASE_URL` como antes.
-- La pantalla defensiva de `src/main.tsx` se conserva como red de seguridad, pero ya no debería activarse.
+### 1. Componente reutilizable `CategoriasManager`
 
-Los valores que se embeben son los mismos que ya están expuestos al navegador (anon key con RLS activa), no se filtra ningún secreto.
+Crear `src/components/categorias/CategoriasManager.tsx` a partir del `CategoriasTab` actual, parametrizado por los ámbitos que debe manejar:
 
-## Cambios concretos
-
-### 1. `vite.config.ts`
-Calcular un objeto `defines` con las tres variables `VITE_SUPABASE_*`:
-- Prioridad: `process.env[KEY]` → `env[KEY]` (de `loadEnv`) → fallback hardcoded del proyecto Lovable Cloud actual.
-- Pasarlo a Vite vía `define: { "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(...), ... }`.
-- Quitar el `console.warn` actual (ya no aplica, siempre habrá valor).
-
-Fallbacks que se incluyen:
-```text
-VITE_SUPABASE_URL            = https://zidlmhqzyffrrsqhdfib.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY = (anon JWT del proyecto, ya público)
-VITE_SUPABASE_PROJECT_ID     = zidlmhqzyffrrsqhdfib
+```ts
+interface Props {
+  isAdmin: boolean;
+  ambitos: Ambito[];               // ej. ['insumo'] o ['producto','paquete']
+  titulo?: string;                 // "Categorías de insumos" / "Categorías de menú"
+  defaultAmbito?: Ambito;          // ámbito preseleccionado al crear
+}
 ```
 
-### 2. `src/main.tsx`
-Conservar la validación defensiva y la pantalla de error como salvaguarda; no requiere cambios funcionales.
+Comportamiento:
 
-### 3. Sin tocar
-- `src/integrations/supabase/client.ts` (auto-generado).
-- `src/integrations/supabase/types.ts`.
-- `.env`, `.gitignore`, `supabase/config.toml`.
-- Edge functions (usan `Deno.env`, ya funcionan con secretos del proyecto).
+- Si `ambitos.length === 1`: oculta el `Tabs` de filtro interno y el `Select` de ámbito del diálogo (se fuerza al único valor). La columna "Ámbito" de la tabla también se oculta.
+- Si `ambitos.length > 1`: muestra `TabsList` con un trigger por ámbito (sin "Todas" cuando son sólo 2, para evitar ruido) y el `Select` de ámbito en el diálogo restringido a esos valores.
+- Conteo de uso: ya hay queries a `insumos.categoria` y `productos.categoria`. Se mantienen, pero sólo se renderiza la métrica relevante a los ámbitos visibles.
+- Mensajes (`AlertDialog` de borrado, toasts, audit logs) usan el `AMBITO_LABEL` ya existente — sigue funcionando para los tres valores.
 
-## Verificación post-cambio
+### 2. Inventarios
 
-1. Publicar (Publish → Update) para regenerar el bundle.
-2. Abrir `https://cococacao-kuchil.lovable.app/login` en una ventana de incógnito:
-   - Debe cargar el login normalmente.
-   - Consola sin `supabaseUrl is required`.
-   - Network: la primera petición a `https://zidlmhqzyffrrsqhdfib.supabase.co/auth/v1/...` debe responder 200/401 (no error de URL).
-3. Probar login con cuenta válida y navegar a una ruta protegida para confirmar sesión.
+`src/pages/InventariosPage.tsx`:
 
-## Por qué no volverá a ocurrir
+- La pestaña "Categorías" sigue siendo la primera y por defecto, pero ahora monta `<CategoriasManager ambitos={['insumo']} defaultAmbito="insumo" titulo="Categorías de insumos" />`.
+- El componente `src/components/inventarios/CategoriasTab.tsx` se elimina (su lógica vive en el manager).
 
-- El bundle ya no depende de variables externas en tiempo de publicación: los valores quedan embebidos como literales por Vite.
-- Cualquier futura regeneración de `client.ts` mantiene la misma firma (`import.meta.env.VITE_SUPABASE_URL`), que ahora Vite siempre puede resolver.
-- Si en el futuro se migra a otro proyecto de Lovable Cloud, basta actualizar los tres literales del `define` (o seguir usando `.env`, que sigue teniendo prioridad).
+### 3. Menú
+
+`src/pages/MenuPage.tsx`:
+
+- Añadir nueva primera pestaña "Categorías" a la izquierda de "Productos Individuales".
+- `<CategoriasManager ambitos={['producto','paquete']} defaultAmbito="producto" titulo="Categorías de menú" />`.
+- `defaultValue` del `Tabs` cambia a `"categorias"`.
+
+### 4. Limpieza de hooks
+
+`src/hooks/useCategorias.ts` ya acepta ámbito único o arreglo — no requiere cambios. Verificar que los consumidores siguen pidiendo el ámbito correcto:
+
+- `InsumosTab` → `useCategorias('insumo')` ✅
+- `ProductosTab` → `useCategorias('producto')` ✅
+- `PaquetesDinamicosTab` → `useCategorias('paquete')` ✅
+- `PreciosDeliveryTab` → `useCategorias(['producto','paquete'])` ✅
+
+## Base de datos
+
+**Sin migración.** La tabla `categorias_maestras` ya tiene la columna `ambito` y las RLS son por rol, no por ámbito. La separación es 100% de presentación.
+
+## Permisos y navegación
+
+- `/inventarios` y `/menu` ya están restringidos a `administrador` y `supervisor`. No cambia.
+- El botón "Nueva Categoría" sigue gated por `isAdmin` dentro del manager.
+
+## Trazabilidad
+
+Los `audit_logs` ya registran `crear_categoria / actualizar_categoria / eliminar_categoria` con el `ambito` en `metadata`. Se conserva intacto, por lo que los reportes históricos siguen siendo consistentes después del refactor.
+
+## Plan de archivos
+
+```text
++ src/components/categorias/CategoriasManager.tsx   (nuevo, reemplaza CategoriasTab)
+- src/components/inventarios/CategoriasTab.tsx      (eliminar)
+~ src/pages/InventariosPage.tsx                     (monta manager con ámbito 'insumo')
+~ src/pages/MenuPage.tsx                            (nueva pestaña inicial "Categorías")
+```
+
+## Validación post-refactor
+
+1. En **Inventarios → Categorías**: sólo se ven categorías de insumos, no hay sub-pestañas, el diálogo crea siempre con `ambito='insumo'`.
+2. En **Menú → Categorías**: pestaña a la izquierda, sub-pestañas "Productos / Paquetes", crear/editar respeta el ámbito seleccionado.
+3. Crear una categoría "Test" en Menú con ámbito `producto` y confirmar que aparece como opción en el `Select` de categoría de `ProductosTab` (vía `useCategorias('producto')`), pero **no** en `InsumosTab`.
+4. Revisar `audit_logs`: cada acción registra el ámbito correcto.

@@ -1,4 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import CategoriasManager from '@/components/categorias/CategoriasManager';
 import ProductosTab from '@/components/inventarios/ProductosTab';
 import PaquetesDinamicosTab from '@/components/menu/PaquetesDinamicosTab';
 import PreciosDeliveryTab from '@/components/menu/PreciosDeliveryTab';
@@ -13,16 +14,26 @@ const MenuPage = () => {
       <div>
         <h1 className="text-3xl font-heading font-bold text-foreground">Menú</h1>
         <p className="text-muted-foreground mt-1">
-          Productos, paquetes y precios para venta y delivery
+          Categorías, productos, paquetes y precios para venta y delivery
         </p>
       </div>
 
-      <Tabs defaultValue="productos">
+      <Tabs defaultValue="categorias">
         <TabsList>
+          <TabsTrigger value="categorias">Categorías</TabsTrigger>
           <TabsTrigger value="productos">Productos Individuales</TabsTrigger>
           <TabsTrigger value="paquetes">Paquetes / Combos</TabsTrigger>
           <TabsTrigger value="delivery">Precios Delivery</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="categorias" className="mt-4">
+          <CategoriasManager
+            isAdmin={isAdmin}
+            ambitos={['producto', 'paquete']}
+            defaultAmbito="producto"
+            titulo="Categorías de menú"
+          />
+        </TabsContent>
 
         <TabsContent value="productos" className="mt-4">
           <ProductosTab isAdmin={isAdmin} roles={roles} />
