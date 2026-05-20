@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
+import { DataPagination } from '@/components/ui/data-pagination';
 
 interface MermaRow {
   id: string;
