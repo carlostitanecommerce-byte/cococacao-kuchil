@@ -411,6 +411,17 @@ const InsumosTab = ({ isAdmin }: Props) => {
         </CardContent>
       </Card>
 
+      <DataPagination
+        paginaActual={paginaSegura}
+        totalItems={insumosFiltrados.length}
+        porPagina={porPagina}
+        onPaginaChange={setPaginaActual}
+        onPorPaginaChange={setPorPagina}
+        etiqueta="insumos"
+      />
+
+
+
       {/* Dialog CRUD */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
