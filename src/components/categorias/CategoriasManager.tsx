@@ -217,6 +217,14 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
   const visibles = singleAmbito ? categorias : categorias.filter(c => c.ambito === filtro);
   const showAmbitoColumn = !singleAmbito;
 
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
+  useEffect(() => { setPaginaActual(1); }, [filtro, porPagina]);
+  const totalPaginas = Math.max(1, Math.ceil(visibles.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const visiblesPagina = visibles.slice(inicio, inicio + porPagina);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
