@@ -49,7 +49,7 @@ interface Props {
   isAdmin: boolean;
 }
 
-const PAGE_SIZE = 50;
+
 
 const ComprasTab = ({ isAdmin }: Props) => {
   const { user } = useAuth();
