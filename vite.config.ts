@@ -7,8 +7,9 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
-  // Fail-fast en builds de producción si faltan variables críticas de Lovable Cloud.
-  // Esto evita publicar un bundle que arranque con "supabaseUrl is required" y deje pantalla blanca.
+  // Aviso (no bloqueante) si faltan variables críticas de Lovable Cloud en build de producción.
+  // No bloqueamos el build porque las variables pueden inyectarse en runtime/edge del hosting;
+  // la pantalla controlada de src/main.tsx avisa al usuario si realmente faltan.
   if (mode === "production") {
     const required = [
       "VITE_SUPABASE_URL",
@@ -17,10 +18,8 @@ export default defineConfig(({ mode }) => {
     ];
     const missing = required.filter((k) => !env[k] && !process.env[k]);
     if (missing.length > 0) {
-      throw new Error(
-        `[build] Missing Lovable Cloud build environment variables: ${missing.join(
-          ", "
-        )}. Refresca la conexión de Lovable Cloud y vuelve a publicar.`
+      console.warn(
+        `[build] Aviso: faltan variables de Lovable Cloud en el entorno de build: ${missing.join(", ")}.`
       );
     }
   }
