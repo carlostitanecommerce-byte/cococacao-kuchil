@@ -267,14 +267,14 @@ const ComprasTab = ({ isAdmin }: Props) => {
           <Input
             type="date"
             value={fechaDesde}
-            onChange={(e) => { setPage(0); setFechaDesde(e.target.value); }}
+            onChange={(e) => { setPage(1); setFechaDesde(e.target.value); }}
             className="w-full sm:w-40"
             title="Desde"
           />
           <Input
             type="date"
             value={fechaHasta}
-            onChange={(e) => { setPage(0); setFechaHasta(e.target.value); }}
+            onChange={(e) => { setPage(1); setFechaHasta(e.target.value); }}
             className="w-full sm:w-40"
             title="Hasta"
           />
@@ -282,7 +282,7 @@ const ComprasTab = ({ isAdmin }: Props) => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { setPage(0); setFechaDesde(''); setFechaHasta(''); }}
+              onClick={() => { setPage(1); setFechaDesde(''); setFechaHasta(''); }}
             >
               Limpiar
             </Button>
