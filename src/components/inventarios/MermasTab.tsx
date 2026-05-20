@@ -75,7 +75,7 @@ const MermasTab = ({ isAdmin }: Props) => {
       }
 
       setMermas(rows);
-      setPage(0);
+      setPage(1);
       setLoading(false);
     };
     fetch();
