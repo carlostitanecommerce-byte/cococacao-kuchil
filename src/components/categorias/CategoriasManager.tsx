@@ -22,7 +22,6 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Pencil, Trash2, Tag, FlaskConical, Package, Boxes } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 type Ambito = 'insumo' | 'producto' | 'paquete';
@@ -38,12 +37,21 @@ interface Categoria {
 
 interface Props {
   isAdmin: boolean;
+  ambitos: Ambito[];
+  titulo?: string;
+  defaultAmbito?: Ambito;
 }
 
 const AMBITO_LABEL: Record<Ambito, string> = {
   insumo: 'Insumo',
   producto: 'Producto',
   paquete: 'Paquete',
+};
+
+const AMBITO_PLURAL: Record<Ambito, string> = {
+  insumo: 'Insumos',
+  producto: 'Productos',
+  paquete: 'Paquetes',
 };
 
 const AmbitoBadge = ({ ambito }: { ambito: Ambito }) => {
@@ -61,30 +69,41 @@ const AmbitoBadge = ({ ambito }: { ambito: Ambito }) => {
   );
 };
 
-const CategoriasTab = ({ isAdmin }: Props) => {
+const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) => {
   const { user } = useAuth();
+  const singleAmbito = ambitos.length === 1;
+  const baseAmbito: Ambito = defaultAmbito ?? ambitos[0];
+
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<{ nombre: string; descripcion: string; ambito: Ambito }>({
-    nombre: '', descripcion: '', ambito: 'producto',
+    nombre: '', descripcion: '', ambito: baseAmbito,
   });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Categoria | null>(null);
-  const [filtro, setFiltro] = useState<'todos' | Ambito>('todos');
+  const [filtro, setFiltro] = useState<Ambito>(baseAmbito);
 
   const fetchCategorias = async () => {
     setLoading(true);
     const { data } = await supabase
       .from('categorias_maestras')
       .select('id, nombre, descripcion, ambito')
+      .in('ambito', ambitos)
       .order('nombre');
     const cats = (data as Categoria[]) ?? [];
 
+    const needInsumos = ambitos.includes('insumo');
+    const needProductos = ambitos.includes('producto') || ambitos.includes('paquete');
+
     const [insumosRes, productosRes] = await Promise.all([
-      supabase.from('insumos').select('categoria'),
-      supabase.from('productos').select('categoria'),
+      needInsumos
+        ? supabase.from('insumos').select('categoria')
+        : Promise.resolve({ data: [] as any[] }),
+      needProductos
+        ? supabase.from('productos').select('categoria')
+        : Promise.resolve({ data: [] as any[] }),
     ]);
     const cuentaIns = new Map<string, number>();
     const cuentaProd = new Map<string, number>();
@@ -100,11 +119,11 @@ const CategoriasTab = ({ isAdmin }: Props) => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchCategorias(); }, []);
+  useEffect(() => { fetchCategorias(); /* eslint-disable-next-line */ }, [ambitos.join(',')]);
 
   const openNew = () => {
     setEditingId(null);
-    setForm({ nombre: '', descripcion: '', ambito: 'producto' });
+    setForm({ nombre: '', descripcion: '', ambito: singleAmbito ? baseAmbito : (filtro ?? baseAmbito) });
     setDialogOpen(true);
   };
 
@@ -116,7 +135,9 @@ const CategoriasTab = ({ isAdmin }: Props) => {
 
   const handleSave = async () => {
     if (!form.nombre.trim()) { toast.error('El nombre es obligatorio'); return; }
-    if (!form.ambito) { toast.error('Selecciona un ámbito'); return; }
+    if (!form.ambito || !ambitos.includes(form.ambito)) {
+      toast.error('Ámbito inválido'); return;
+    }
     setSaving(true);
     const payload = {
       nombre: form.nombre.trim(),
@@ -192,21 +213,25 @@ const CategoriasTab = ({ isAdmin }: Props) => {
     setDeleteTarget(null);
   };
 
-  const visibles = filtro === 'todos' ? categorias : categorias.filter(c => c.ambito === filtro);
+  const visibles = singleAmbito ? categorias : categorias.filter(c => c.ambito === filtro);
+  const showAmbitoColumn = !singleAmbito;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <h2 className="text-lg font-heading font-semibold text-foreground">Categorías Maestras</h2>
+        <h2 className="text-lg font-heading font-semibold text-foreground">
+          {titulo ?? 'Categorías'}
+        </h2>
         <div className="flex items-center gap-2">
-          <Tabs value={filtro} onValueChange={(v) => setFiltro(v as any)}>
-            <TabsList>
-              <TabsTrigger value="todos">Todas</TabsTrigger>
-              <TabsTrigger value="insumo">Insumos</TabsTrigger>
-              <TabsTrigger value="producto">Productos</TabsTrigger>
-              <TabsTrigger value="paquete">Paquetes</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {!singleAmbito && (
+            <Tabs value={filtro} onValueChange={(v) => setFiltro(v as Ambito)}>
+              <TabsList>
+                {ambitos.map(a => (
+                  <TabsTrigger key={a} value={a}>{AMBITO_PLURAL[a]}</TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
           {isAdmin && (
             <Button onClick={openNew} size="sm" className="gap-2">
               <Plus className="h-4 w-4" /> Nueva Categoría
@@ -222,7 +247,7 @@ const CategoriasTab = ({ isAdmin }: Props) => {
             <TableHeader>
               <TableRow>
                 <TableHead>Nombre</TableHead>
-                <TableHead>Ámbito</TableHead>
+                {showAmbitoColumn && <TableHead>Ámbito</TableHead>}
                 <TableHead>Descripción</TableHead>
                 <TableHead className="text-right">En uso</TableHead>
                 {isAdmin && <TableHead className="text-right">Acciones</TableHead>}
@@ -236,7 +261,7 @@ const CategoriasTab = ({ isAdmin }: Props) => {
               ) : visibles.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    Sin categorías en este ámbito.
+                    Sin categorías.
                   </TableCell>
                 </TableRow>
               ) : visibles.map(cat => {
@@ -251,7 +276,7 @@ const CategoriasTab = ({ isAdmin }: Props) => {
                         {cat.nombre}
                       </div>
                     </TableCell>
-                    <TableCell><AmbitoBadge ambito={cat.ambito} /></TableCell>
+                    {showAmbitoColumn && <TableCell><AmbitoBadge ambito={cat.ambito} /></TableCell>}
                     <TableCell className="text-muted-foreground">{cat.descripcion || '—'}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {usoTotal === 0 ? (
@@ -263,7 +288,7 @@ const CategoriasTab = ({ isAdmin }: Props) => {
                               {cat.ambito === 'insumo'
                                 ? <FlaskConical className="h-3.5 w-3.5 text-muted-foreground" />
                                 : <Package className="h-3.5 w-3.5 text-muted-foreground" />}
-                              <span className={cn('font-medium text-foreground')}>{usoTotal}</span>
+                              <span className="font-medium text-foreground">{usoTotal}</span>
                             </span>
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">
@@ -307,22 +332,24 @@ const CategoriasTab = ({ isAdmin }: Props) => {
                 onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
               />
             </div>
-            <div className="space-y-1">
-              <Label>Ámbito de la categoría *</Label>
-              <Select value={form.ambito} onValueChange={(v) => setForm(f => ({ ...f, ambito: v as Ambito }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona un ámbito" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="insumo">Insumo</SelectItem>
-                  <SelectItem value="producto">Producto</SelectItem>
-                  <SelectItem value="paquete">Paquete</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Define dónde aparecerá esta categoría: en el catálogo de insumos, productos individuales o paquetes.
-              </p>
-            </div>
+            {!singleAmbito && (
+              <div className="space-y-1">
+                <Label>Ámbito de la categoría *</Label>
+                <Select value={form.ambito} onValueChange={(v) => setForm(f => ({ ...f, ambito: v as Ambito }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un ámbito" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ambitos.map(a => (
+                      <SelectItem key={a} value={a}>{AMBITO_LABEL[a]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Define dónde aparecerá esta categoría.
+                </p>
+              </div>
+            )}
             <div className="space-y-1">
               <Label>Descripción (opcional)</Label>
               <Input
@@ -369,4 +396,4 @@ const CategoriasTab = ({ isAdmin }: Props) => {
   );
 };
 
-export default CategoriasTab;
+export default CategoriasManager;
