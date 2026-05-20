@@ -1,62 +1,72 @@
-# Fix: limitar edición de pax a áreas privadas + recálculo de amenities por pax
+# Unificar paginación en Inventarios
 
-## Contexto
+Replicar exactamente el componente de paginación que ya usa **Menú › Productos Individuales** (`ProductosTab.tsx`) en las cuatro pestañas de **Inventarios**: Categorías, Insumos, Compras y Mermas.
 
-En `ManageSessionAccountDialog` (cuenta de una sesión activa) hay un botón de lápiz junto a `{pax} pax` que abre el editor inline para cambiar `pax_count`. Esto solo tiene sentido para **áreas privadas** (`areas_coworking.es_privado = true`), donde la tarifa cubre todo el espacio y el número de personas dentro puede variar durante la sesión.
+## Referencia visual (lo que se va a replicar)
 
-En **áreas públicas** la tarifa es **por persona** y el pax queda fijado en el check-in: permitir editarlo aquí abre una vía para alterar la base de cobro y disparar recálculos de amenities incoherentes con la facturación por persona.
+Barra inferior con dos bloques:
 
-Adicionalmente, en áreas privadas las amenities incluidas son **por persona** (ej. 1 agua por pax). Cuando se edita el pax — pasar de 1 a 2, o de 3 a 2 — las amenities deben escalar en consecuencia automáticamente, sin requerir un paso manual.
-
-## Solución
-
-Cambios quirúrgicos, solo en el frontend de presentación + una validación defensiva en el handler. El recálculo de amenities ya existe vía RPC y se reutiliza tal cual.
-
-### 1. UI — gatear el control de edición por `es_privado`
-
-En `src/components/coworking/ManageSessionAccountDialog.tsx`:
-
-- Calcular `const canEditPax = !!sessionArea?.es_privado;` junto a `sessionArea` (línea ~231).
-- Mostrar el botón lápiz **y** la rama `isEditingPax` solo cuando `canEditPax` es `true`. En áreas públicas se sigue mostrando `{session.pax_count} pax` (lectura) pero sin el lápiz ni el input.
-- En áreas públicas el control simplemente desaparece, consistente con cómo el dashboard ya oculta acciones no disponibles.
-
-### 2. Defensa en `handleSavePax`
-
-Aunque la UI no exponga el botón, blindar el handler para evitar manipulación vía estado local:
-
-```ts
-if (!sessionArea?.es_privado) {
-  toast({ variant: 'destructive', title: 'No permitido', description: 'Solo las áreas privadas permiten editar el pax.' });
-  return;
-}
+```text
+Mostrando 1–25 de 137 productos        Por página [25 ▾]   [‹] [1] [2] [3] … [6] [›]
 ```
 
-Esto bloquea el `update` antes de tocar Supabase.
+- Texto izquierdo: `Mostrando X–Y de N <entidad>` (xs, `text-muted-foreground`).
+- Selector "Por página" con opciones **10 / 25 / 50 / 100** (`h-8 w-20`).
+- Botones numerados (`h-8 w-8`, `outline` / `default` para el activo) con elipsis cuando hay más de 7 páginas.
+- Flechas `ChevronLeft` / `ChevronRight` con la misma altura.
+- Mismo layout responsive: `flex flex-wrap items-center justify-between gap-3`.
 
-### 3. Recálculo automático de amenities al cambiar pax (privadas)
+## Cambios por pestaña
 
-Esta lógica **ya existe** en `handleSavePax` + `handleConfirmAmenityRecalc` (RPC `recalcular_amenities_pax`), que ajusta líneas de amenity en la cuenta, crea mermas si hay reducción y envía nuevas amenities al KDS si hay incremento. Se mantiene tal cual y queda restringida implícitamente a privadas porque solo desde privadas se puede llegar al handler.
+### 1. Categorías (`src/components/categorias/CategoriasManager.tsx`)
+- Hoy no tiene paginación. Agregar estados `paginaActual`, `porPagina` (default 25) y aplicar slice sobre `visibles`.
+- Reset de página cuando cambia `filtro` o búsqueda interna (si la hubiese).
+- Renderizar la barra debajo del listado/tabla de categorías.
 
-Pequeño refuerzo de UX: dado que el recálculo es la consecuencia natural (no opcional) en una privada, el diálogo de confirmación `pendingAmenityUpdate` debe presentarse con copy explícito que comunique el ajuste 1:1 por pax, p. ej.:
+### 2. Insumos (`src/components/inventarios/InsumosTab.tsx`)
+- Hoy no tiene paginación. Agregar el mismo bloque sobre el arreglo ya filtrado (búsqueda + switch de stock bajo).
+- Reset de página al cambiar búsqueda, filtro de categoría o switch.
 
-> "El área es privada y las amenities están ligadas al pax. Se actualizarán de N → M personas:
-> • +X agua (al KDS), -Y agua (a merma)…"
+### 3. Compras (`src/components/inventarios/ComprasTab.tsx`)
+- Ya pagina pero contra el servidor (`range`) con un par de flechas básicas. Mantener la consulta paginada en BD pero reemplazar la UI por el mismo bloque (texto "Mostrando X–Y de N compras", selector de tamaño, números con elipsis, flechas).
+- El selector de "Por página" actualizará `PAGE_SIZE` (pasarlo a estado) y reiniciará `page` a 0.
 
-Sin cambios funcionales en la RPC ni en la lógica de cálculo — solo el texto del `AlertDialog` para que el operador entienda la causa.
+### 4. Mermas (`src/components/inventarios/MermasTab.tsx`)
+- Ya tiene paginación cliente simple. Reemplazar por el bloque unificado, manteniendo la lógica de `filtradas` y el slice.
+- Agregar selector de tamaño de página (10/25/50/100) en lugar del `PAGE_SIZE` constante.
 
-### 4. Validación a nivel BD (defer)
+## Detalles técnicos
 
-Hoy `coworking_sessions.pax_count` se actualiza con un `update` directo (no RPC), regulado solo por la RLS de "owner o admin". Un trigger que rechace cambios de `pax_count` cuando el área es pública sería el cierre profesional ideal, pero también afectaría flujos legítimos (admin corrigiendo, scripts). **No se incluye**: anotado como mejora futura.
+- Para evitar duplicar código en 4 archivos, **extraer un componente reutilizable** `src/components/ui/data-pagination.tsx` (puramente presentacional) con props:
 
-## Validación
+  ```ts
+  interface DataPaginationProps {
+    paginaActual: number;        // 1-based
+    totalItems: number;
+    porPagina: number;
+    onPaginaChange: (p: number) => void;
+    onPorPaginaChange: (n: number) => void;
+    etiqueta?: string;           // p.ej. "productos", "insumos", "compras", "mermas"
+    opcionesPorPagina?: number[];// default [10, 25, 50, 100]
+  }
+  ```
 
-1. Check-in en un área **pública** → abrir cuenta → lápiz **no aparece**; solo `N pax` en lectura.
-2. Check-in en un área **privada** con 1 pax y tarifa con 1 amenity por persona → editar a 2 pax → confirmar diálogo → la cuenta refleja 2 amenities, el KDS recibe la amenity adicional, no se crean mermas.
-3. Misma área privada con 3 pax → editar a 2 pax → confirmar → la cuenta reduce a 2 amenities, se registra 1 merma del amenity sobrante, KDS sin cambios.
-4. Resto del diálogo (cobros, agregar al POS, cancelaciones) sin cambios en ambos casos.
+  Internamente calcula `totalPaginas`, `inicio`, `fin` y la lista `numerosPagina` con elipsis (misma lógica de `ProductosTab.tsx` líneas 548-564). Renderiza exactamente el mismo JSX (líneas 683-723).
+
+- Cada pestaña se queda con la responsabilidad de filtrar/cortar sus datos; la paginación es solo UI + estado.
+- Compras seguirá usando paginación server-side: el componente reporta los cambios y el `useEffect` existente refetchea con `from/to`.
+- Las demás (Categorías, Insumos, Mermas) usan `slice` en memoria igual que Productos.
 
 ## Archivos afectados
 
-```text
-~ src/components/coworking/ManageSessionAccountDialog.tsx
-```
+- `src/components/ui/data-pagination.tsx` *(nuevo)*
+- `src/components/categorias/CategoriasManager.tsx`
+- `src/components/inventarios/InsumosTab.tsx`
+- `src/components/inventarios/ComprasTab.tsx`
+- `src/components/inventarios/MermasTab.tsx`
+- *(opcional, refactor)* `src/components/inventarios/ProductosTab.tsx` para que también consuma el nuevo componente y quede una sola fuente de verdad.
+
+## Fuera de alcance
+
+- No se cambia la lógica de filtros, búsqueda, ni queries de datos.
+- No se modifica el estilo visual de las tablas ni de los formularios.

@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import MermaDialog from './MermaDialog';
+import { DataPagination } from '@/components/ui/data-pagination';
 
 interface Insumo {
   id: string;
@@ -254,6 +255,14 @@ const InsumosTab = ({ isAdmin }: Props) => {
     });
   }, [insumos, busqueda, categoriaFiltro, soloStockBajo]);
 
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
+  useEffect(() => { setPaginaActual(1); }, [busqueda, categoriaFiltro, soloStockBajo, porPagina]);
+  const totalPaginas = Math.max(1, Math.ceil(insumosFiltrados.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const insumosPagina = insumosFiltrados.slice(inicio, inicio + porPagina);
+
   return (
     <div className="space-y-4">
       {lowStock.length > 0 && (
@@ -328,7 +337,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
                 <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                   {insumos.length === 0 ? 'Sin insumos registrados' : 'No se encontraron insumos que coincidan con tu búsqueda'}
                 </TableCell></TableRow>
-              ) : insumosFiltrados.map(insumo => {
+              ) : insumosPagina.map(insumo => {
                 const bajo = insumo.stock_actual < insumo.stock_minimo;
                 return (
                   <TableRow key={insumo.id} className={bajo ? 'bg-destructive/5' : ''}>
@@ -401,6 +410,17 @@ const InsumosTab = ({ isAdmin }: Props) => {
           </div>
         </CardContent>
       </Card>
+
+      <DataPagination
+        paginaActual={paginaSegura}
+        totalItems={insumosFiltrados.length}
+        porPagina={porPagina}
+        onPaginaChange={setPaginaActual}
+        onPorPaginaChange={setPorPagina}
+        etiqueta="insumos"
+      />
+
+
 
       {/* Dialog CRUD */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

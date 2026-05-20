@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
+import { DataPagination } from '@/components/ui/data-pagination';
 
 interface MermaRow {
   id: string;
@@ -27,7 +28,7 @@ interface InsumoLite { id: string; nombre: string }
 
 interface Props { isAdmin: boolean }
 
-const PAGE_SIZE = 25;
+
 
 const MermasTab = ({ isAdmin }: Props) => {
   const [mermas, setMermas] = useState<MermaRow[]>([]);
@@ -39,7 +40,8 @@ const MermasTab = ({ isAdmin }: Props) => {
   const [insumoFiltro, setInsumoFiltro] = useState<string>('todos');
   const [fechaDesde, setFechaDesde] = useState<string>('');
   const [fechaHasta, setFechaHasta] = useState<string>('');
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1); // 1-based
+  const [porPagina, setPorPagina] = useState(25);
 
   useEffect(() => {
     supabase.from('insumos').select('id, nombre').order('nombre')
@@ -73,7 +75,7 @@ const MermasTab = ({ isAdmin }: Props) => {
       }
 
       setMermas(rows);
-      setPage(0);
+      setPage(1);
       setLoading(false);
     };
     fetch();
@@ -89,15 +91,17 @@ const MermasTab = ({ isAdmin }: Props) => {
     );
   }, [mermas, busqueda]);
 
-  const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
-  const paginadas = filtradas.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtradas.length / porPagina));
+  const paginaSegura = Math.min(page, totalPages);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const paginadas = filtradas.slice(inicio, inicio + porPagina);
 
   const limpiarFiltros = () => {
     setBusqueda('');
     setInsumoFiltro('todos');
     setFechaDesde('');
     setFechaHasta('');
-    setPage(0);
+    setPage(1);
   };
 
   const hayFiltros = busqueda || insumoFiltro !== 'todos' || fechaDesde || fechaHasta;
@@ -117,7 +121,7 @@ const MermasTab = ({ isAdmin }: Props) => {
                 <Input
                   placeholder="Motivo, insumo, usuario…"
                   value={busqueda}
-                  onChange={e => { setBusqueda(e.target.value); setPage(0); }}
+                  onChange={e => { setBusqueda(e.target.value); setPage(1); }}
                   className="pl-9"
                 />
               </div>
@@ -193,22 +197,14 @@ const MermasTab = ({ isAdmin }: Props) => {
         </CardContent>
       </Card>
 
-      {/* Paginación */}
-      {filtradas.length > PAGE_SIZE && (
-        <div className="flex items-center justify-between text-sm">
-          <p className="text-muted-foreground">
-            Página {page + 1} de {totalPages} · Mostrando {paginadas.length} de {filtradas.length}
-          </p>
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <DataPagination
+        paginaActual={paginaSegura}
+        totalItems={filtradas.length}
+        porPagina={porPagina}
+        onPaginaChange={setPage}
+        onPorPaginaChange={setPorPagina}
+        etiqueta="mermas"
+      />
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -216,6 +217,14 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
   const visibles = singleAmbito ? categorias : categorias.filter(c => c.ambito === filtro);
   const showAmbitoColumn = !singleAmbito;
 
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
+  useEffect(() => { setPaginaActual(1); }, [filtro, porPagina]);
+  const totalPaginas = Math.max(1, Math.ceil(visibles.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const visiblesPagina = visibles.slice(inicio, inicio + porPagina);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -264,7 +273,7 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
                     Sin categorías.
                   </TableCell>
                 </TableRow>
-              ) : visibles.map(cat => {
+              ) : visiblesPagina.map(cat => {
                 const usoIns = cat.uso_insumos ?? 0;
                 const usoProd = cat.uso_productos ?? 0;
                 const usoTotal = cat.ambito === 'insumo' ? usoIns : usoProd;
@@ -317,6 +326,17 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
           </TooltipProvider>
         </CardContent>
       </Card>
+
+      <DataPagination
+        paginaActual={paginaSegura}
+        totalItems={visibles.length}
+        porPagina={porPagina}
+        onPaginaChange={setPaginaActual}
+        onPorPaginaChange={setPorPagina}
+        etiqueta="categorías"
+      />
+
+
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">

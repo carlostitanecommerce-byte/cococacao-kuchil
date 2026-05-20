@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { Plus, Search, Package, Ban } from 'lucide-react';
+import { DataPagination } from '@/components/ui/data-pagination';
 
 interface Insumo {
   id: string;
@@ -48,7 +49,7 @@ interface Props {
   isAdmin: boolean;
 }
 
-const PAGE_SIZE = 50;
+
 
 const ComprasTab = ({ isAdmin }: Props) => {
   const { user } = useAuth();
@@ -60,7 +61,8 @@ const ComprasTab = ({ isAdmin }: Props) => {
   const [busqueda, setBusqueda] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1); // 1-based
+  const [porPagina, setPorPagina] = useState(50);
   const [totalCount, setTotalCount] = useState(0);
 
   // Form state
@@ -106,8 +108,8 @@ const ComprasTab = ({ isAdmin }: Props) => {
 
   const fetchData = async () => {
     setLoading(true);
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
+    const from = (page - 1) * porPagina;
+    const to = from + porPagina - 1;
 
     let comprasQuery = supabase
       .from('compras_insumos')
@@ -159,9 +161,9 @@ const ComprasTab = ({ isAdmin }: Props) => {
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, fechaDesde, fechaHasta]);
+  }, [page, porPagina, fechaDesde, fechaHasta]);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  
 
   const resetForm = () => {
     setSelectedInsumoId('');
@@ -265,14 +267,14 @@ const ComprasTab = ({ isAdmin }: Props) => {
           <Input
             type="date"
             value={fechaDesde}
-            onChange={(e) => { setPage(0); setFechaDesde(e.target.value); }}
+            onChange={(e) => { setPage(1); setFechaDesde(e.target.value); }}
             className="w-full sm:w-40"
             title="Desde"
           />
           <Input
             type="date"
             value={fechaHasta}
-            onChange={(e) => { setPage(0); setFechaHasta(e.target.value); }}
+            onChange={(e) => { setPage(1); setFechaHasta(e.target.value); }}
             className="w-full sm:w-40"
             title="Hasta"
           />
@@ -280,7 +282,7 @@ const ComprasTab = ({ isAdmin }: Props) => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { setPage(0); setFechaDesde(''); setFechaHasta(''); }}
+              onClick={() => { setPage(1); setFechaDesde(''); setFechaHasta(''); }}
             >
               Limpiar
             </Button>
@@ -373,32 +375,14 @@ const ComprasTab = ({ isAdmin }: Props) => {
         </CardContent>
       </Card>
 
-      {/* Paginación */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">
-            Página {page + 1} de {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0 || loading}
-            >
-              Anterior
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1 || loading}
-            >
-              Siguiente
-            </Button>
-          </div>
-        </div>
-      )}
+      <DataPagination
+        paginaActual={page}
+        totalItems={totalCount}
+        porPagina={porPagina}
+        onPaginaChange={setPage}
+        onPorPaginaChange={(n) => { setPorPagina(n); setPage(1); }}
+        etiqueta="compras"
+      />
 
       {/* Dialog Registrar Compra */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
