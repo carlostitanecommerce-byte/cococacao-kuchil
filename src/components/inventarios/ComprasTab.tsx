@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { Plus, Search, Package, Ban } from 'lucide-react';
+import { DataPagination } from '@/components/ui/data-pagination';
 
 interface Insumo {
   id: string;
