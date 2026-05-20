@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import MermaDialog from './MermaDialog';
+import { DataPagination } from '@/components/ui/data-pagination';
 
 interface Insumo {
   id: string;
