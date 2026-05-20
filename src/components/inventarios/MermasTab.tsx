@@ -40,7 +40,8 @@ const MermasTab = ({ isAdmin }: Props) => {
   const [insumoFiltro, setInsumoFiltro] = useState<string>('todos');
   const [fechaDesde, setFechaDesde] = useState<string>('');
   const [fechaHasta, setFechaHasta] = useState<string>('');
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1); // 1-based
+  const [porPagina, setPorPagina] = useState(25);
 
   useEffect(() => {
     supabase.from('insumos').select('id, nombre').order('nombre')
