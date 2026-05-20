@@ -645,7 +645,22 @@ export default function CocinaPage() {
   const handleStart = (orderId: string) => updateEstado(orderId, 'en_preparacion');
   const handleMarkReady = (orderId: string) => updateEstado(orderId, 'listo');
   const handleRevert = (orderId: string) => updateEstado(orderId, 'en_preparacion');
-  const handleDismiss = (orderId: string) => updateEstado(orderId, 'expirada' as any);
+  const handleDismiss = async (orderId: string) => {
+    setBusyId(orderId);
+    const { error } = await supabase.rpc('actualizar_estado_kds_orden' as any, {
+      p_order_id: orderId,
+      p_nuevo_estado: 'expirada' as any,
+    });
+    if (error) {
+      toast.error('Error al marcar como entregada');
+      console.error(error);
+    } else {
+      setOrders((prev) => prev.filter((o) => o.id !== orderId));
+      delete listoTimestamps.current[orderId];
+      knownIds.current.delete(orderId);
+    }
+    setBusyId(null);
+  };
 
   // ------- Cancelaciones de items de sesión coworking -------
   const fetchCancelaciones = useCallback(async () => {

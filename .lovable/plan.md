@@ -1,86 +1,63 @@
-# Refactor: Categorías por dominio
+# Fix: botón "Entregado" en KDS falla con "Error al actualizar orden"
 
-## Objetivo
+## Diagnóstico
 
-Hoy `CategoriasTab` vive en **Inventarios** y mezcla los tres ámbitos (`insumo`, `producto`, `paquete`) con un filtro interno. Esto rompe la coherencia del módulo: Inventarios debería tratar sólo insumos, y Menú es el dueño natural de productos y paquetes.
-
-Resultado esperado:
-
-- **Inventarios** → pestaña "Categorías" gestiona **solo insumos**, sin sub-pestañas de ámbito.
-- **Menú** → nueva pestaña "Categorías" (la primera, a la izquierda) que gestiona **productos y paquetes**, con pestañitas internas "Productos / Paquetes" (como las actuales en Inventarios).
-- Cero pérdida de datos ni cambios en `categorias_maestras`.
-
-## Cambios funcionales
-
-### 1. Componente reutilizable `CategoriasManager`
-
-Crear `src/components/categorias/CategoriasManager.tsx` a partir del `CategoriasTab` actual, parametrizado por los ámbitos que debe manejar:
+El botón **Entregado** del KDS (`KdsOrderCard`) dispara `handleDismiss` en `CocinaPage`:
 
 ```ts
-interface Props {
-  isAdmin: boolean;
-  ambitos: Ambito[];               // ej. ['insumo'] o ['producto','paquete']
-  titulo?: string;                 // "Categorías de insumos" / "Categorías de menú"
-  defaultAmbito?: Ambito;          // ámbito preseleccionado al crear
-}
+const handleDismiss = (orderId: string) => updateEstado(orderId, 'expirada' as any);
 ```
 
-Comportamiento:
+`updateEstado` llama a la RPC `actualizar_estado_kds_orden(p_order_id, p_nuevo_estado)`, que tiene este guard:
 
-- Si `ambitos.length === 1`: oculta el `Tabs` de filtro interno y el `Select` de ámbito del diálogo (se fuerza al único valor). La columna "Ámbito" de la tabla también se oculta.
-- Si `ambitos.length > 1`: muestra `TabsList` con un trigger por ámbito (sin "Todas" cuando son sólo 2, para evitar ruido) y el `Select` de ámbito en el diálogo restringido a esos valores.
-- Conteo de uso: ya hay queries a `insumos.categoria` y `productos.categoria`. Se mantienen, pero sólo se renderiza la métrica relevante a los ámbitos visibles.
-- Mensajes (`AlertDialog` de borrado, toasts, audit logs) usan el `AMBITO_LABEL` ya existente — sigue funcionando para los tres valores.
+```sql
+IF p_nuevo_estado NOT IN ('pendiente', 'en_preparacion', 'listo') THEN
+  RAISE EXCEPTION 'Estado inválido: %', p_nuevo_estado;
+END IF;
+```
 
-### 2. Inventarios
+El enum `kds_estado` ya incluye `expirada` como valor válido, pero la RPC lo rechaza. Por eso el `toast.error('Error al actualizar orden')` aparece justo al presionar **Entregado**, y la orden se queda en la columna "Listo" hasta que el auto-remove de 90s la limpia visualmente (sin registro en `audit_logs`).
 
-`src/pages/InventariosPage.tsx`:
+## Solución
 
-- La pestaña "Categorías" sigue siendo la primera y por defecto, pero ahora monta `<CategoriasManager ambitos={['insumo']} defaultAmbito="insumo" titulo="Categorías de insumos" />`.
-- El componente `src/components/inventarios/CategoriasTab.tsx` se elimina (su lógica vive en el manager).
+Dos cambios pequeños y coordinados, sin tocar la UI:
 
-### 3. Menú
+### 1. Migración DB — permitir `expirada` en la RPC
 
-`src/pages/MenuPage.tsx`:
+Actualizar `public.actualizar_estado_kds_orden` para aceptar también `expirada` como estado destino válido. Es el estado terminal natural para "orden entregada / sacada del tablero" y ya existe en el enum, así que no requiere migración de datos.
 
-- Añadir nueva primera pestaña "Categorías" a la izquierda de "Productos Individuales".
-- `<CategoriasManager ambitos={['producto','paquete']} defaultAmbito="producto" titulo="Categorías de menú" />`.
-- `defaultValue` del `Tabs` cambia a `"categorias"`.
+```sql
+-- En la validación de la función:
+IF p_nuevo_estado NOT IN (
+  'pendiente'::kds_estado,
+  'en_preparacion'::kds_estado,
+  'listo'::kds_estado,
+  'expirada'::kds_estado
+) THEN
+  RAISE EXCEPTION 'Estado inválido: %', p_nuevo_estado;
+END IF;
+```
 
-### 4. Limpieza de hooks
+El resto de la función (audit log, `updated_at`, duración) sigue igual — registra automáticamente la transición `listo → expirada` en `audit_logs` con el folio, lo que mejora la trazabilidad de entregas (hoy inexistente).
 
-`src/hooks/useCategorias.ts` ya acepta ámbito único o arreglo — no requiere cambios. Verificar que los consumidores siguen pidiendo el ámbito correcto:
+### 2. Frontend — limpieza menor en `CocinaPage`
 
-- `InsumosTab` → `useCategorias('insumo')` ✅
-- `ProductosTab` → `useCategorias('producto')` ✅
-- `PaquetesDinamicosTab` → `useCategorias('paquete')` ✅
-- `PreciosDeliveryTab` → `useCategorias(['producto','paquete'])` ✅
+- Quitar el cast sucio `'expirada' as any` y tiparlo correctamente como `KdsEstado` (el tipo ya cubre el valor del enum).
+- Tras un dismiss exitoso, eliminar la orden de `orders` inmediatamente (en lugar de esperar el auto-remove de 90s sobre el estado `listo`). El query principal ya filtra por `pendiente/en_preparacion/listo` con ventana de 2 min, así que no reaparecerá en el siguiente fetch.
 
-## Base de datos
+Sin cambios en `KdsOrderCard` ni en `KdsBoard`.
 
-**Sin migración.** La tabla `categorias_maestras` ya tiene la columna `ambito` y las RLS son por rol, no por ámbito. La separación es 100% de presentación.
+## Validación
 
-## Permisos y navegación
+1. Login como barista, abrir Cocina, llevar una orden hasta "Listo".
+2. Presionar **Entregado** → la tarjeta desaparece sin toast de error.
+3. Verificar en `audit_logs` un registro `kds_orden_estado` con `estado_anterior: listo`, `estado_nuevo: expirada`, folio correcto.
+4. Verificar que la orden no reaparezca tras un refetch (recargar la página).
+5. Verificar que `Revertir a "En preparación"` sigue funcionando (no fue tocado).
 
-- `/inventarios` y `/menu` ya están restringidos a `administrador` y `supervisor`. No cambia.
-- El botón "Nueva Categoría" sigue gated por `isAdmin` dentro del manager.
-
-## Trazabilidad
-
-Los `audit_logs` ya registran `crear_categoria / actualizar_categoria / eliminar_categoria` con el `ambito` en `metadata`. Se conserva intacto, por lo que los reportes históricos siguen siendo consistentes después del refactor.
-
-## Plan de archivos
+## Archivos afectados
 
 ```text
-+ src/components/categorias/CategoriasManager.tsx   (nuevo, reemplaza CategoriasTab)
-- src/components/inventarios/CategoriasTab.tsx      (eliminar)
-~ src/pages/InventariosPage.tsx                     (monta manager con ámbito 'insumo')
-~ src/pages/MenuPage.tsx                            (nueva pestaña inicial "Categorías")
+~ supabase migration: actualizar función actualizar_estado_kds_orden
+~ src/pages/CocinaPage.tsx: tipar handleDismiss y limpiar orders tras éxito
 ```
-
-## Validación post-refactor
-
-1. En **Inventarios → Categorías**: sólo se ven categorías de insumos, no hay sub-pestañas, el diálogo crea siempre con `ambito='insumo'`.
-2. En **Menú → Categorías**: pestaña a la izquierda, sub-pestañas "Productos / Paquetes", crear/editar respeta el ámbito seleccionado.
-3. Crear una categoría "Test" en Menú con ámbito `producto` y confirmar que aparece como opción en el `Select` de categoría de `ProductosTab` (vía `useCategorias('producto')`), pero **no** en `InsumosTab`.
-4. Revisar `audit_logs`: cada acción registra el ámbito correcto.
