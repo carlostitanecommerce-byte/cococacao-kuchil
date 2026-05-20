@@ -273,7 +273,7 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
                     Sin categorías.
                   </TableCell>
                 </TableRow>
-              ) : visibles.map(cat => {
+              ) : visiblesPagina.map(cat => {
                 const usoIns = cat.uso_insumos ?? 0;
                 const usoProd = cat.uso_productos ?? 0;
                 const usoTotal = cat.ambito === 'insumo' ? usoIns : usoProd;
