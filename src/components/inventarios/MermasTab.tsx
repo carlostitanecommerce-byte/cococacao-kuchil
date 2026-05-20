@@ -197,22 +197,14 @@ const MermasTab = ({ isAdmin }: Props) => {
         </CardContent>
       </Card>
 
-      {/* Paginación */}
-      {filtradas.length > PAGE_SIZE && (
-        <div className="flex items-center justify-between text-sm">
-          <p className="text-muted-foreground">
-            Página {page + 1} de {totalPages} · Mostrando {paginadas.length} de {filtradas.length}
-          </p>
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <DataPagination
+        paginaActual={paginaSegura}
+        totalItems={filtradas.length}
+        porPagina={porPagina}
+        onPaginaChange={setPage}
+        onPorPaginaChange={setPorPagina}
+        etiqueta="mermas"
+      />
     </div>
   );
 };
