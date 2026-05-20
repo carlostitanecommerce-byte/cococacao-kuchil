@@ -337,7 +337,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
                 <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                   {insumos.length === 0 ? 'Sin insumos registrados' : 'No se encontraron insumos que coincidan con tu búsqueda'}
                 </TableCell></TableRow>
-              ) : insumosFiltrados.map(insumo => {
+              ) : insumosPagina.map(insumo => {
                 const bajo = insumo.stock_actual < insumo.stock_minimo;
                 return (
                   <TableRow key={insumo.id} className={bajo ? 'bg-destructive/5' : ''}>
