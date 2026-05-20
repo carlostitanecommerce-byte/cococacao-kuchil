@@ -255,6 +255,14 @@ const InsumosTab = ({ isAdmin }: Props) => {
     });
   }, [insumos, busqueda, categoriaFiltro, soloStockBajo]);
 
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
+  useEffect(() => { setPaginaActual(1); }, [busqueda, categoriaFiltro, soloStockBajo, porPagina]);
+  const totalPaginas = Math.max(1, Math.ceil(insumosFiltrados.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const insumosPagina = insumosFiltrados.slice(inicio, inicio + porPagina);
+
   return (
     <div className="space-y-4">
       {lowStock.length > 0 && (
