@@ -233,6 +233,10 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
   const handleSavePax = () => withLock(async () => {
     if (!session) return;
+    if (!sessionArea?.es_privado) {
+      toast({ variant: 'destructive', title: 'No permitido', description: 'Solo las áreas privadas permiten editar el pax.' });
+      return;
+    }
     const pax = parseInt(tempPax, 10);
     if (isNaN(pax) || pax < 1) {
       toast({ variant: 'destructive', title: 'Pax inválido' });
