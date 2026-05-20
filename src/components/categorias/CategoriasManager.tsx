@@ -327,6 +327,17 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
         </CardContent>
       </Card>
 
+      <DataPagination
+        paginaActual={paginaSegura}
+        totalItems={visibles.length}
+        porPagina={porPagina}
+        onPaginaChange={setPaginaActual}
+        onPorPaginaChange={setPorPagina}
+        etiqueta="categorías"
+      />
+
+
+
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
