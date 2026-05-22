@@ -186,7 +186,7 @@ const PosPage = () => {
     }
   }, [addOrIncrementProduct, addOrIncrementPaquete, tarifaUpsells]);
 
-  const handlePaqueteConfirm = useCallback(({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
+  const handlePaqueteConfirm = useCallback(async ({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
     if (!paqueteCtx) return;
     // Guardia: el paquete debe tener al menos una opción seleccionada para que el descuento de inventario sea correcto
     if (!opciones || opciones.length === 0) {
@@ -204,6 +204,32 @@ const PosPage = () => {
       toast.error('Las opciones del paquete no tienen productos válidos');
       return;
     }
+
+    // Validar stock acumulado contra carrito actual + paquete tentativo
+    const currentItems = useCartStore.getState().items;
+    const itemsTentativos = [
+      ...currentItems.map((i) => ({
+        producto_id: i.producto_id,
+        cantidad: i.cantidad,
+        tipo_concepto: i.tipo_concepto,
+        opciones: (i as any).opciones,
+        componentes: (i as any).componentes,
+      })),
+      {
+        producto_id: paqueteCtx.id,
+        cantidad: 1,
+        tipo_concepto: 'paquete',
+        opciones,
+        componentes: Array.from(counts.values()),
+      },
+    ];
+    const { data: validacion, error: valErr } = await supabase.rpc('validar_stock_carrito', {
+      p_items: itemsTentativos as any,
+    });
+    if (valErr) { toast.error('Error al validar stock del paquete'); return; }
+    const resultado = validacion as unknown as { valido: boolean; error?: string };
+    if (!resultado?.valido) { toast.error(resultado?.error || 'Stock insuficiente para las opciones seleccionadas'); return; }
+
     addOrIncrementPaquete({
       producto_id: paqueteCtx.id,
       nombre: `📦 ${paqueteCtx.nombre}`,
@@ -225,7 +251,25 @@ const PosPage = () => {
         const validacion = await verificarStock(item.producto_id, 1);
         if (!validacion.valido) { toast.error(validacion.error); return; }
       }
-      // Para paquetes el control de stock ya se valida globalmente al cobrar.
+      if (item && item.tipo_concepto === 'paquete') {
+        // Validar el carrito completo con la cantidad incrementada del paquete
+        const itemsTentativos = items.map((i) => {
+          const isThis = (i.lineId ?? i.producto_id) === lineId;
+          return {
+            producto_id: i.producto_id,
+            cantidad: i.cantidad + (isThis ? delta : 0),
+            tipo_concepto: i.tipo_concepto,
+            opciones: (i as any).opciones,
+            componentes: (i as any).componentes,
+          };
+        });
+        const { data: validacion, error: valErr } = await supabase.rpc('validar_stock_carrito', {
+          p_items: itemsTentativos as any,
+        });
+        if (valErr) { toast.error('Error al validar stock del paquete'); return; }
+        const resultado = validacion as unknown as { valido: boolean; error?: string };
+        if (!resultado?.valido) { toast.error(resultado?.error || 'Stock insuficiente para incrementar el paquete'); return; }
+      }
     }
     updateQty(lineId, delta);
   }, [updateQty, items]);
