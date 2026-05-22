@@ -563,11 +563,37 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     return pages;
   }, [totalPaginas, paginaSegura]);
 
+  // === Auditoría: productos sin receta ===
+  const productosSinReceta = useMemo(() => {
+    const ids = new Set(Object.keys(expandedRecetas));
+    return productos.filter(p => p.activo && p.requiere_preparacion);
+  }, [productos, expandedRecetas]);
+  const [auditDialogOpen, setAuditDialogOpen] = useState(false);
+  const [productosFaltantes, setProductosFaltantes] = useState<Producto[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+
+  const abrirAuditoria = async () => {
+    setLoadingAudit(true);
+    setAuditDialogOpen(true);
+    const { data } = await supabase
+      .from('recetas')
+      .select('producto_id');
+    const conReceta = new Set((data ?? []).map((r: any) => r.producto_id));
+    const faltantes = productos.filter(p => p.activo && p.requiere_preparacion && !conReceta.has(p.id));
+    setProductosFaltantes(faltantes);
+    setLoadingAudit(false);
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <h2 className="text-lg font-heading font-semibold text-foreground whitespace-nowrap">Productos Finales</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && (
+            <Button onClick={abrirAuditoria} size="sm" variant="outline" className="gap-2">
+              <AlertTriangle className="h-4 w-4" /> Auditar Recetas
+            </Button>
+          )}
           <Button onClick={handleDownloadRecetas} size="sm" variant="outline" className="gap-2">
             <Download className="h-4 w-4" /> Descargar Recetas
           </Button>
