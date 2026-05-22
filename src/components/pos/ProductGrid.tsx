@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ImageIcon, LayoutGrid, Rows3, Package } from 'lucide-react';
+import { ImageIcon, LayoutGrid, Rows3, Package, ArrowLeftRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Producto {
@@ -22,14 +22,21 @@ interface Props {
 }
 
 type Densidad = 'compacto' | 'comodo';
+type Modo = 'producto' | 'paquete';
 
 const DENSITY_KEY = 'pos-grid-density';
+const MODE_KEY = 'pos-grid-mode';
 
 export function ProductGrid({ onAdd }: Props) {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
-  const { categorias: categoriasDB } = useCategorias(['producto', 'paquete']);
-  const [categoriaActiva, setCategoriaActiva] = useState('Todos');
+  const { categorias: categoriasProducto } = useCategorias('producto');
+  const { categorias: categoriasPaquete } = useCategorias('paquete');
+  const [modo, setModo] = useState<Modo>(() => {
+    if (typeof window === 'undefined') return 'producto';
+    return (localStorage.getItem(MODE_KEY) as Modo) || 'producto';
+  });
+  const [categoriaActiva, setCategoriaActiva] = useState<string | null>(null);
   const [densidad, setDensidad] = useState<Densidad>(() => {
     if (typeof window === 'undefined') return 'compacto';
     return (localStorage.getItem(DENSITY_KEY) as Densidad) || 'compacto';
@@ -38,6 +45,10 @@ export function ProductGrid({ onAdd }: Props) {
   useEffect(() => {
     localStorage.setItem(DENSITY_KEY, densidad);
   }, [densidad]);
+
+  useEffect(() => {
+    localStorage.setItem(MODE_KEY, modo);
+  }, [modo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,20 +71,22 @@ export function ProductGrid({ onAdd }: Props) {
     return () => { cancelled = true; supabase.removeChannel(channel); };
   }, []);
 
-  const categoriasConProductos = categoriasDB.filter(cat =>
-    productos.some(p => p.categoria === cat)
-  );
-  const allTabs = ['Todos', ...categoriasConProductos];
+  const tipoActivo: 'simple' | 'paquete' = modo === 'producto' ? 'simple' : 'paquete';
+  const categoriasDelModo = modo === 'producto' ? categoriasProducto : categoriasPaquete;
 
-  // Si la categoría seleccionada desaparece (admin la borró), regresa a "Todos".
+  const categoriasVisibles = categoriasDelModo.filter(cat =>
+    productos.some(p => p.tipo === tipoActivo && p.categoria === cat)
+  );
+
+  // Si la categoría seleccionada desaparece del modo actual, limpiar.
   useEffect(() => {
-    if (!loading && !allTabs.includes(categoriaActiva)) {
-      setCategoriaActiva('Todos');
+    if (categoriaActiva && !categoriasVisibles.includes(categoriaActiva)) {
+      setCategoriaActiva(null);
     }
-  }, [allTabs, categoriaActiva, loading]);
+  }, [categoriasVisibles, categoriaActiva]);
 
   const filtered = productos.filter(p =>
-    categoriaActiva === 'Todos' || p.categoria === categoriaActiva
+    p.tipo === tipoActivo && (categoriaActiva === null || p.categoria === categoriaActiva)
   );
 
   const isCompacto = densidad === 'compacto';
@@ -82,18 +95,33 @@ export function ProductGrid({ onAdd }: Props) {
     ? 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7'
     : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
 
+  const toggleModo = () => {
+    setModo(m => (m === 'producto' ? 'paquete' : 'producto'));
+    setCategoriaActiva(null);
+  };
+
   return (
     <div className="flex flex-col h-full">
-      {/* Barra sticky: categorías + toggle densidad */}
+      {/* Barra sticky: modo + categorías + toggle densidad */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm pb-2 -mt-1 pt-1">
         <div className="flex items-start gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
+            onClick={toggleModo}
+            title="Alternar entre Productos y Paquetes"
+          >
+            {modo === 'producto' ? 'Productos' : 'Paquetes'}
+            <ArrowLeftRight className="h-3 w-3" />
+          </Button>
           <div className="flex-1 flex flex-wrap gap-1.5">
-            {allTabs.map(cat => (
+            {categoriasVisibles.map(cat => (
               <Badge
                 key={cat}
                 variant={categoriaActiva === cat ? 'default' : 'outline'}
                 className="cursor-pointer select-none text-xs px-2 py-0.5"
-                onClick={() => setCategoriaActiva(cat)}
+                onClick={() => setCategoriaActiva(prev => prev === cat ? null : cat)}
               >
                 {cat}
               </Badge>
@@ -168,7 +196,7 @@ export function ProductGrid({ onAdd }: Props) {
               })}
               {filtered.length === 0 && (
                 <div className="col-span-full text-center text-muted-foreground py-12">
-                  No hay productos en esta categoría
+                  {modo === 'producto' ? 'No hay productos en esta categoría' : 'No hay paquetes en esta categoría'}
                 </div>
               )}
             </>
