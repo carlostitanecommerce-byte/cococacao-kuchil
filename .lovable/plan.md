@@ -1,41 +1,79 @@
-# Validación de stock para paquetes
+# ¿Puede haber stock negativo hoy?
 
-## Problema
+## Diagnóstico
 
-Hoy el stock de las **opciones/componentes de un paquete** no se valida:
+**Estado actual en producción:** `SELECT * FROM insumos WHERE stock_actual < 0` → **0 filas**. Ningún insumo está en negativo hoy.
 
-1. `handlePaqueteConfirm` mete el paquete al carrito sin tocar inventario.
-2. `handleAddProduct` (rama paquete legacy en línea 152) tampoco valida.
-3. `validar_stock_carrito` (RPC al cobrar) sólo lee `recetas` del `producto_id` del item; como los paquetes no tienen receta propia, los ignora.
-4. El único freno real es el trigger `descontar_inventario_venta` durante el `INSERT` de la venta → el cajero arma todo el ticket y la transacción explota al cobrar.
+**Revisión de todas las rutas que tocan `insumos.stock_actual`:**
 
-## Solución (2 capas)
+| Función / Trigger | ¿Resta stock? | Protección |
+|---|---|---|
+| `descontar_inventario_venta` (trigger al cobrar) | Sí | `SELECT ... FOR UPDATE` + valida antes de restar ✅ |
+| `registrar_consumo_coworking` (cargo a cuenta) | No resta — sólo valida con `FOR UPDATE`. El descuento real ocurre al cobrar (trigger anterior) ✅ |
+| `registrar_amenity_sesion` | Sí | `FOR UPDATE` + valida antes ✅ |
+| `ajustar_amenity_sesion` | Sí | `UPDATE ... RETURNING` atómico + `RAISE` si queda `< 0` → rollback ✅ |
+| `registrar_merma` | Sí | `FOR UPDATE` + valida antes ✅ |
+| `anular_compra_insumo` | Sí (revierte alta) | `FOR UPDATE` + valida antes ✅ |
+| `aplicar_auditoria_inventario` | Set absoluto | Valida `p_fisico >= 0` ✅ |
+| `sumar_stock_compra` (trigger) | Sólo suma | n/a |
+| `reintegrar_inventario_cancelacion` (trigger) | Sólo suma | n/a |
+| `cancelar_sesion_coworking` / `resolver_cancelacion_item_sesion` | Sólo suman | n/a |
 
-### Capa 1 — Validación pre-carrito (UX)
+**Conclusión:** todas las rutas actuales están blindadas. **Pero hay una laguna estructural:**
 
-En `src/pages/PosPage.tsx`:
+> ❌ **La columna `insumos.stock_actual` no tiene `CHECK (stock_actual >= 0)`**. Toda la protección vive en código PL/pgSQL. Si en el futuro:
+> - se agrega una RPC nueva que olvida `FOR UPDATE`,
+> - un admin hace un `UPDATE insumos SET stock_actual = ...` manual,
+> - una migración futura introduce un bug,
+> 
+> el negativo se grabaría sin que la base te avise.
 
-- **`handlePaqueteConfirm`**: antes de `addOrIncrementPaquete`, recorrer `opciones` agrupadas por `producto_id`, sumarles el consumo de las líneas de paquete equivalentes ya en el carrito y llamar `verificarStock(producto_id, cantidadAcumulada)` para cada uno. Si alguno falla, mostrar toast con nombre del producto y abortar (mantener el dialog abierto).
-- **Rama paquete legacy en `handleAddProduct`** (línea 152): mismo tratamiento sobre `componentes`.
-- **`handleUpdateQty`**: cuando `delta > 0` y el item es paquete, validar todos sus `componentes`/`opciones` proporcionalmente. Eliminar el comentario engañoso "se valida globalmente al cobrar".
+# Plan: defensa en profundidad a nivel DB
 
-### Capa 2 — Validación atómica pre-cobro (backstop)
+Una sola migración, sin tocar código frontend.
 
-Migración SQL: ampliar `public.validar_stock_carrito(jsonb)` para que, por cada item con `tipo_concepto = 'paquete'`, expanda recetas a partir de:
+## Paso 1 — Agregar CHECK constraint
 
-- `opciones[].producto_id` (paquetes dinámicos), o
-- `componentes[].producto_id × componentes[].cantidad` (paquetes legacy),
+```sql
+ALTER TABLE public.insumos
+  ADD CONSTRAINT insumos_stock_no_negativo
+  CHECK (stock_actual >= 0)
+  NOT VALID;
 
-cada uno multiplicado por `cantidad` del item. Acumular el consumo agregado por `insumo_id` (igual que hoy para productos simples) y comparar contra `stock_actual`. El mensaje de error debe nombrar el insumo faltante.
+-- Validar contra datos existentes (ya sabemos que pasan: 0 negativos hoy).
+ALTER TABLE public.insumos
+  VALIDATE CONSTRAINT insumos_stock_no_negativo;
+```
 
-No se requiere cambio de firma (sigue recibiendo `p_items jsonb`), sólo enriquecer la lógica interna.
+Efecto: **cualquier** `INSERT`/`UPDATE` que intente dejar `stock_actual < 0` falla con `ERRCODE 23514` y revierte la transacción completa — incluso si la lógica PL/pgSQL llegara a fallar.
 
-## Archivos afectados
+## Paso 2 — Mejorar mensaje de error en el trigger principal
 
-- `src/pages/PosPage.tsx` — `handlePaqueteConfirm`, rama paquete de `handleAddProduct`, `handleUpdateQty`.
-- Nueva migración SQL — redefine `validar_stock_carrito` con soporte de paquetes.
+En `descontar_inventario_venta`, capturar el `check_violation` y reemitir un mensaje legible que nombre el insumo (en lugar de mostrar el SQL crudo al cajero):
 
-## Fuera de alcance
+```sql
+EXCEPTION WHEN check_violation THEN
+  RAISE EXCEPTION 'Stock insuficiente para "%": el inventario quedaría negativo',
+    COALESCE(v_nombre_producto, NEW.descripcion, 'producto');
+```
 
-- Cambios en `cartStore.ts`, en `ConfirmVentaDialog.tsx` o en el trigger `descontar_inventario_venta`.
-- Paquetes con más de una unidad de la misma opción se cubren porque ya se cuentan en el `Map<producto_id, cantidad>` que construye `handlePaqueteConfirm`.
+(Esto sólo se dispararía si la validación previa fallara — es el cinturón sobre los tirantes.)
+
+## Paso 3 — Verificación post-migración
+
+Una sola query de humo:
+
+```sql
+SELECT conname, contype FROM pg_constraint
+WHERE conrelid = 'public.insumos'::regclass AND conname = 'insumos_stock_no_negativo';
+```
+
+# Fuera de alcance
+
+- Cambios en `cartStore`, `PosPage`, ni ninguna pantalla. La validación de UX al agregar al carrito ya existe (`validar_stock_carrito` + locks en triggers).
+- No se modifican funciones que ya están correctas — sólo se les agrega un manejador de excepción opcional.
+
+# Riesgos
+
+- **Cero riesgo de datos:** los datos actuales ya cumplen el constraint.
+- **Riesgo operativo controlado:** si alguna ruta tuviera un bug latente que produjera negativos en ciertas condiciones, ahora fallaría visiblemente en lugar de corromper inventario silenciosamente — eso es exactamente lo que se quiere.
