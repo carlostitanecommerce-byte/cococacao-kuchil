@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download, Upload, X, Loader2, ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download, Upload, X, Loader2, ImageIcon, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 
