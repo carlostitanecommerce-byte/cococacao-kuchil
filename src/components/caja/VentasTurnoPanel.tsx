@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { supabase } from '@/integrations/supabase/client';
@@ -15,6 +15,7 @@ import { cdmxDateRange } from '@/lib/ventasUtils';
 import { CancelVentaDialog } from './CancelVentaDialog';
 import { CambiarMetodoPagoDialog } from './CambiarMetodoPagoDialog';
 import { TicketReimprimirDialog } from './TicketReimprimirDialog';
+import { DataPagination } from '@/components/ui/data-pagination';
 
 interface VentaTurno {
   id: string;
@@ -44,6 +45,8 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
   const [editPagoVenta, setEditPagoVenta] = useState<VentaTurno | null>(null);
   const [reprintVenta, setReprintVenta] = useState<VentaTurno | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
 
   const fetchVentas = async () => {
     const { desdeISO, hastaISO } = cdmxDateRange(selectedDate, selectedDate);
@@ -70,7 +73,14 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
+  useEffect(() => { setPaginaActual(1); }, [selectedDate, porPagina]);
+
   const completadas = ventas.filter(v => v.estado === 'completada');
+
+  const ventasPagina = useMemo(() => {
+    const inicio = (paginaActual - 1) * porPagina;
+    return ventas.slice(inicio, inicio + porPagina);
+  }, [ventas, paginaActual, porPagina]);
 
   const metodoPagoLabel: Record<string, string> = {
     efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', mixto: 'Mixto',
@@ -120,6 +130,7 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
               {ventas.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">No hay ventas en esta fecha</p>
               ) : (
+                <>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -132,7 +143,7 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {ventas.map(v => (
+                    {ventasPagina.map(v => (
                       <TableRow key={v.id} className={v.estado === 'cancelada' ? 'opacity-50' : ''}>
                         <TableCell className="text-xs font-medium">#{String(v.folio).padStart(4, '0')}</TableCell>
                         <TableCell className="text-xs">
@@ -172,6 +183,15 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
                     ))}
                   </TableBody>
                 </Table>
+                <DataPagination
+                  paginaActual={paginaActual}
+                  totalItems={ventas.length}
+                  porPagina={porPagina}
+                  onPaginaChange={setPaginaActual}
+                  onPorPaginaChange={setPorPagina}
+                  etiqueta="ventas"
+                />
+                </>
               )}
             </CardContent>
           </CollapsibleContent>

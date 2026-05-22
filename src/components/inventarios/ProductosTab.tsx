@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download, Upload, X, Loader2, ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download, Upload, X, Loader2, ImageIcon, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 
@@ -563,11 +563,37 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     return pages;
   }, [totalPaginas, paginaSegura]);
 
+  // === Auditoría: productos sin receta ===
+  const productosSinReceta = useMemo(() => {
+    const ids = new Set(Object.keys(expandedRecetas));
+    return productos.filter(p => p.activo && p.requiere_preparacion);
+  }, [productos, expandedRecetas]);
+  const [auditDialogOpen, setAuditDialogOpen] = useState(false);
+  const [productosFaltantes, setProductosFaltantes] = useState<Producto[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+
+  const abrirAuditoria = async () => {
+    setLoadingAudit(true);
+    setAuditDialogOpen(true);
+    const { data } = await supabase
+      .from('recetas')
+      .select('producto_id');
+    const conReceta = new Set((data ?? []).map((r: any) => r.producto_id));
+    const faltantes = productos.filter(p => p.activo && p.requiere_preparacion && !conReceta.has(p.id));
+    setProductosFaltantes(faltantes);
+    setLoadingAudit(false);
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <h2 className="text-lg font-heading font-semibold text-foreground whitespace-nowrap">Productos Finales</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && (
+            <Button onClick={abrirAuditoria} size="sm" variant="outline" className="gap-2">
+              <AlertTriangle className="h-4 w-4" /> Auditar Recetas
+            </Button>
+          )}
           <Button onClick={handleDownloadRecetas} size="sm" variant="outline" className="gap-2">
             <Download className="h-4 w-4" /> Descargar Recetas
           </Button>
@@ -949,6 +975,52 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Auditoría: productos sin receta */}
+      <Dialog open={auditDialogOpen} onOpenChange={setAuditDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Auditoría de Recetas
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {loadingAudit ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Cargando...</p>
+            ) : productosFaltantes.length === 0 ? (
+              <div className="text-center py-6 space-y-2">
+                <p className="text-sm text-foreground font-medium">Todos los productos que requieren preparación tienen receta configurada.</p>
+                <p className="text-xs text-muted-foreground">No hay descuentos de inventario pendientes de configurar.</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Estos {productosFaltantes.length} producto(s) están activos y marcados como "requiere preparación", pero no tienen receta. Al venderse <strong>no descuentan inventario</strong>.
+                </p>
+                <div className="max-h-96 overflow-y-auto border rounded-md divide-y">
+                  {productosFaltantes.map(p => (
+                    <div key={p.id} className="flex items-center justify-between p-3 hover:bg-muted/50">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{p.nombre}</p>
+                        <p className="text-xs text-muted-foreground">{p.categoria}</p>
+                      </div>
+                      {isAdmin && (
+                        <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => { setAuditDialogOpen(false); openEdit(p); }}>
+                          <Pencil className="h-3.5 w-3.5" /> Configurar
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAuditDialogOpen(false)}>Cerrar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
