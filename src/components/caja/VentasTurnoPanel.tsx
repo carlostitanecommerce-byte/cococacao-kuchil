@@ -142,7 +142,7 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {ventas.map(v => (
+                    {ventasPagina.map(v => (
                       <TableRow key={v.id} className={v.estado === 'cancelada' ? 'opacity-50' : ''}>
                         <TableCell className="text-xs font-medium">#{String(v.folio).padStart(4, '0')}</TableCell>
                         <TableCell className="text-xs">
@@ -182,6 +182,15 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
                     ))}
                   </TableBody>
                 </Table>
+                <DataPagination
+                  paginaActual={paginaActual}
+                  totalItems={ventas.length}
+                  porPagina={porPagina}
+                  onPaginaChange={setPaginaActual}
+                  onPorPaginaChange={setPorPagina}
+                  etiqueta="ventas"
+                />
+                </>
               )}
             </CardContent>
           </CollapsibleContent>
