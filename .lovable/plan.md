@@ -1,83 +1,68 @@
-## ¿Es cierto el riesgo de deadlock?
+## Objetivo
+Reorganizar el filtro superior de `ProductGrid.tsx` (POS) para que el usuario alterne entre **Productos** y **Paquetes** con un solo botón, y a la derecha solo aparezcan las categorías del modo activo. Así la barra no crece aunque haya muchas categorías de paquetes en el futuro.
 
-**Sí, es 100% correcto y real.** Lo verifiqué leyendo el código actual de las funciones en la base de datos.
-
-### Lo que encontré
-
-Confirmado: **ninguna** de las funciones que bloquean `insumos` con `FOR UPDATE` (o que los actualizan, lo cual también toma un row lock) ordena los renglones de `recetas` antes de iterar. Postgres devuelve las filas en el orden físico de la tabla, que **no** está garantizado entre transacciones.
-
-Funciones afectadas (todas hacen `FOR ... IN SELECT ... FROM recetas WHERE producto_id = ...` sin `ORDER BY`):
-
-| Función | Cuándo se dispara |
-|---|---|
-| `descontar_inventario_venta` (trigger) | Al insertar `detalle_ventas` con `venta_id` (cobro de POS) |
-| `registrar_consumo_coworking` | Al cargar consumo a cuenta de sesión |
-| `registrar_amenity_sesion` | Al añadir amenity a sesión |
-| `ajustar_amenity_sesion` | Al ajustar cantidad de amenity |
-| `recalcular_amenities_pax` | Al cambiar pax de sesión |
-| `reintegrar_inventario_cancelacion` | Al cancelar venta/ítem |
-| `resolver_cancelacion_item_sesion` | Al aprobar cancelación de ítem |
-
-### Escenario real de deadlock
+## Cómo se verá
 
 ```text
-T=0  Cajero A vende "Latte"    → bloquea insumo "Leche"
-T=0  Cajero B vende "Chocolate"→ bloquea insumo "Azúcar"
-T=1  Cajero A intenta bloquear "Azúcar"  → espera a B
-T=1  Cajero B intenta bloquear "Leche"   → espera a A
-T=2  Postgres detecta deadlock → cancela una transacción con error 40P01
+[ Productos ▸ ]   Cafetería  Postres  Bebidas frías  Snacks   ⬛(densidad)
+                  └─ categorías ámbito 'producto' que tengan productos activos
+
+(al hacer clic en el botón izquierdo)
+
+[ Paquetes ▸ ]    Desayunos  Combos  Eventos                  ⬛(densidad)
+                  └─ categorías ámbito 'paquete' que tengan paquetes activos
 ```
 
-El cajero perdedor ve un error genérico y debe reintentar. En horas pico (varios productos compartiendo leche, azúcar, vasos, tapas, popotes) la probabilidad crece de forma cuadrática.
+- El botón izquierdo es el **modo activo** (siempre resaltado). Hacer clic alterna entre `Productos ↔ Paquetes`.
+- Por defecto arranca en **Productos** y sin categoría seleccionada → muestra todos los productos.
+- Las categorías de la derecha pertenecen únicamente al modo activo y solo aparecen si tienen al menos un ítem activo de ese tipo.
+- Seleccionar una categoría filtra dentro del modo. Cambiar de modo limpia la categoría seleccionada.
 
-### Por qué el `ORDER BY r.insumo_id` lo resuelve
+## Qué hay que cambiar
 
-Si **todas** las funciones bloquean insumos en el **mismo orden global** (por `insumo_id` ascendente), es matemáticamente imposible un ciclo de espera: A y B siempre piden "Azúcar" antes que "Leche", uno gana y el otro espera limpio en cola.
+**Archivo único:** `src/components/pos/ProductGrid.tsx`
 
-# Plan: blindar contra deadlocks (una sola migración SQL)
+1. **Nuevo estado de modo**
+   - `const [modo, setModo] = useState<'producto' | 'paquete'>('producto');`
+   - `categoriaActiva` pasa de `'Todos'` a `string | null` (null = "todo el modo").
 
-## Paso 1 — Añadir `ORDER BY r.insumo_id` a cada loop de recetas
+2. **Separar categorías por ámbito**
+   - Reemplazar `useCategorias(['producto', 'paquete'])` por dos llamadas independientes:
+     - `useCategorias('producto')` → lista para modo Productos.
+     - `useCategorias('paquete')` → lista para modo Paquetes.
+   - Esto garantiza que **nunca aparezcan categorías de insumos** (el hook ya filtra por ámbito; al pedir solo uno se elimina cualquier duplicado nombrado igual que un insumo).
 
-Reescribir las 7 funciones listadas arriba para que el `SELECT` interno termine en `ORDER BY r.insumo_id` (o `ORDER BY 1` cuando sólo se selecciona `insumo_id`). Cambio quirúrgico: no se toca la lógica de cada función, sólo el orden.
+3. **Filtrar categorías visibles según modo**
+   - Para Productos: `categoriasProducto.filter(c => productos.some(p => p.tipo === 'simple' && p.categoria === c))`.
+   - Para Paquetes: `categoriasPaquete.filter(c => productos.some(p => p.tipo === 'paquete' && p.categoria === c))`.
+   - La lista mostrada a la derecha cambia automáticamente al alternar modo.
 
-## Paso 2 — Pre-bloqueo ordenado en `crear_venta_completa`
+4. **Botón de modo (reemplaza al chip "Todos")**
+   - Un `Button` (no `Badge`) a la izquierda, `variant="default"`, con el texto del modo actual (`"Productos"` o `"Paquetes"`) y un ícono que sugiera alternar (p. ej. `Repeat2` o `ArrowLeftRight` de lucide).
+   - Al hacer clic: `setModo(m => m === 'producto' ? 'paquete' : 'producto')` y `setCategoriaActiva(null)`.
+   - Visualmente resaltado siempre (es el ancla del filtro); las badges de categorías a su derecha siguen siendo `outline`/`default` según selección.
 
-Una sola venta puede tener varios productos distintos en el ticket. Aunque cada producto individualmente ya quede ordenado tras el Paso 1, **entre productos** del mismo ticket aún se podrían tomar locks en orden incoherente con otra transacción que tenga otro ticket con los mismos insumos.
+5. **Filtrado de productos en grilla**
+   - `filtered = productos.filter(p => p.tipo === (modo === 'producto' ? 'simple' : 'paquete') && (categoriaActiva === null || p.categoria === categoriaActiva))`.
+   - Se sustituye la lógica actual basada en `categoriaActiva === 'Todos'`.
 
-Solución: al inicio de `crear_venta_completa`, antes de insertar `detalle_ventas`, ejecutar **un solo** `SELECT ... FOR UPDATE` ordenado que pre-bloquee todos los insumos que la venta va a tocar:
+6. **Auto-reset si la categoría seleccionada desaparece**
+   - Mantener el efecto que ya existe pero adaptarlo: si `categoriaActiva` deja de estar en la lista del modo actual, ponerlo en `null`.
 
-```sql
-PERFORM 1 FROM public.insumos
-WHERE id IN (
-  SELECT DISTINCT r.insumo_id
-  FROM public.recetas r
-  WHERE r.producto_id = ANY(<lista de producto_ids del ticket>)
-)
-ORDER BY id
-FOR UPDATE;
-```
+7. **Persistencia opcional (recomendado)**
+   - Guardar el modo elegido en `localStorage` bajo `'pos-grid-mode'` para que el cajero conserve su preferencia entre recargas, igual que la densidad.
 
-Esto fija el orden global de locks **por transacción completa**, no sólo por producto. Es la garantía definitiva.
+## Qué NO cambia
 
-## Paso 3 — Verificación post-migración
+- `PosPage.tsx`, carrito, validaciones de stock, RPCs, lógica de paquetes dinámicos y coworking: intactos.
+- `useCategorias` no se modifica.
+- Estilos generales y densidad compacta/cómoda siguen igual.
+- No se tocan tablas, RLS ni migraciones de base de datos.
 
-```sql
--- Confirma que ninguna función PL/pgSQL itera recetas sin ORDER BY
-SELECT proname FROM pg_proc
-WHERE pronamespace='public'::regnamespace
-  AND prosrc ILIKE '%FROM%recetas%'
-  AND prosrc NOT ILIKE '%ORDER BY%';
--- debe devolver 0 filas (o sólo funciones de lectura que no bloquean)
-```
+## Validación visual tras implementar
 
-# Fuera de alcance
-
-- No se toca código frontend (cartStore, PosPage, dialogs, etc.).
-- No se modifica la lógica de negocio: mismas validaciones, mismos errores legibles, mismas RLS.
-- No se altera el `CHECK (stock_actual >= 0)` ni los mensajes de error agregados ayer.
-
-# Riesgos
-
-- **Cero riesgo funcional:** `ORDER BY` no cambia qué filas se procesan, sólo en qué orden. Resultados idénticos.
-- **Microcosto de performance:** un `ORDER BY` sobre 2–8 filas de recetas es despreciable (índice PK en `insumo_id`).
-- **Único riesgo de proceso:** son 7 funciones a reescribir en una migración larga. Mitigación: copiar cada `CREATE OR REPLACE FUNCTION` actual y añadir sólo la cláusula `ORDER BY`.
+1. Entrar a `/pos` → debe aparecer "Productos" resaltado y solo categorías de productos a la derecha.
+2. Clic en una categoría → filtra; clic en la misma categoría no debe cambiar nada (se queda activa).
+3. Clic en el botón "Productos" → cambia a "Paquetes", aparecen categorías de paquetes y se listan todos los paquetes activos.
+4. Crear/borrar una categoría de producto desde el módulo de categorías → la lista del POS se actualiza vía realtime (igual que ahora).
+5. Ninguna categoría con ámbito `insumo` debe aparecer en ningún modo.
