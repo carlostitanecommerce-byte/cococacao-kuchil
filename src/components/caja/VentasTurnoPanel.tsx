@@ -15,6 +15,7 @@ import { cdmxDateRange } from '@/lib/ventasUtils';
 import { CancelVentaDialog } from './CancelVentaDialog';
 import { CambiarMetodoPagoDialog } from './CambiarMetodoPagoDialog';
 import { TicketReimprimirDialog } from './TicketReimprimirDialog';
+import { DataPagination } from '@/components/ui/data-pagination';
 
 interface VentaTurno {
   id: string;
