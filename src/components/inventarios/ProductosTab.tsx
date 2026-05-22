@@ -975,6 +975,52 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Auditoría: productos sin receta */}
+      <Dialog open={auditDialogOpen} onOpenChange={setAuditDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Auditoría de Recetas
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {loadingAudit ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Cargando...</p>
+            ) : productosFaltantes.length === 0 ? (
+              <div className="text-center py-6 space-y-2">
+                <p className="text-sm text-foreground font-medium">Todos los productos que requieren preparación tienen receta configurada.</p>
+                <p className="text-xs text-muted-foreground">No hay descuentos de inventario pendientes de configurar.</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Estos {productosFaltantes.length} producto(s) están activos y marcados como "requiere preparación", pero no tienen receta. Al venderse <strong>no descuentan inventario</strong>.
+                </p>
+                <div className="max-h-96 overflow-y-auto border rounded-md divide-y">
+                  {productosFaltantes.map(p => (
+                    <div key={p.id} className="flex items-center justify-between p-3 hover:bg-muted/50">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{p.nombre}</p>
+                        <p className="text-xs text-muted-foreground">{p.categoria}</p>
+                      </div>
+                      {isAdmin && (
+                        <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => { setAuditDialogOpen(false); openEdit(p); }}>
+                          <Pencil className="h-3.5 w-3.5" /> Configurar
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAuditDialogOpen(false)}>Cerrar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
