@@ -1,72 +1,41 @@
-# Unificar paginación en Inventarios
+# Validación de stock para paquetes
 
-Replicar exactamente el componente de paginación que ya usa **Menú › Productos Individuales** (`ProductosTab.tsx`) en las cuatro pestañas de **Inventarios**: Categorías, Insumos, Compras y Mermas.
+## Problema
 
-## Referencia visual (lo que se va a replicar)
+Hoy el stock de las **opciones/componentes de un paquete** no se valida:
 
-Barra inferior con dos bloques:
+1. `handlePaqueteConfirm` mete el paquete al carrito sin tocar inventario.
+2. `handleAddProduct` (rama paquete legacy en línea 152) tampoco valida.
+3. `validar_stock_carrito` (RPC al cobrar) sólo lee `recetas` del `producto_id` del item; como los paquetes no tienen receta propia, los ignora.
+4. El único freno real es el trigger `descontar_inventario_venta` durante el `INSERT` de la venta → el cajero arma todo el ticket y la transacción explota al cobrar.
 
-```text
-Mostrando 1–25 de 137 productos        Por página [25 ▾]   [‹] [1] [2] [3] … [6] [›]
-```
+## Solución (2 capas)
 
-- Texto izquierdo: `Mostrando X–Y de N <entidad>` (xs, `text-muted-foreground`).
-- Selector "Por página" con opciones **10 / 25 / 50 / 100** (`h-8 w-20`).
-- Botones numerados (`h-8 w-8`, `outline` / `default` para el activo) con elipsis cuando hay más de 7 páginas.
-- Flechas `ChevronLeft` / `ChevronRight` con la misma altura.
-- Mismo layout responsive: `flex flex-wrap items-center justify-between gap-3`.
+### Capa 1 — Validación pre-carrito (UX)
 
-## Cambios por pestaña
+En `src/pages/PosPage.tsx`:
 
-### 1. Categorías (`src/components/categorias/CategoriasManager.tsx`)
-- Hoy no tiene paginación. Agregar estados `paginaActual`, `porPagina` (default 25) y aplicar slice sobre `visibles`.
-- Reset de página cuando cambia `filtro` o búsqueda interna (si la hubiese).
-- Renderizar la barra debajo del listado/tabla de categorías.
+- **`handlePaqueteConfirm`**: antes de `addOrIncrementPaquete`, recorrer `opciones` agrupadas por `producto_id`, sumarles el consumo de las líneas de paquete equivalentes ya en el carrito y llamar `verificarStock(producto_id, cantidadAcumulada)` para cada uno. Si alguno falla, mostrar toast con nombre del producto y abortar (mantener el dialog abierto).
+- **Rama paquete legacy en `handleAddProduct`** (línea 152): mismo tratamiento sobre `componentes`.
+- **`handleUpdateQty`**: cuando `delta > 0` y el item es paquete, validar todos sus `componentes`/`opciones` proporcionalmente. Eliminar el comentario engañoso "se valida globalmente al cobrar".
 
-### 2. Insumos (`src/components/inventarios/InsumosTab.tsx`)
-- Hoy no tiene paginación. Agregar el mismo bloque sobre el arreglo ya filtrado (búsqueda + switch de stock bajo).
-- Reset de página al cambiar búsqueda, filtro de categoría o switch.
+### Capa 2 — Validación atómica pre-cobro (backstop)
 
-### 3. Compras (`src/components/inventarios/ComprasTab.tsx`)
-- Ya pagina pero contra el servidor (`range`) con un par de flechas básicas. Mantener la consulta paginada en BD pero reemplazar la UI por el mismo bloque (texto "Mostrando X–Y de N compras", selector de tamaño, números con elipsis, flechas).
-- El selector de "Por página" actualizará `PAGE_SIZE` (pasarlo a estado) y reiniciará `page` a 0.
+Migración SQL: ampliar `public.validar_stock_carrito(jsonb)` para que, por cada item con `tipo_concepto = 'paquete'`, expanda recetas a partir de:
 
-### 4. Mermas (`src/components/inventarios/MermasTab.tsx`)
-- Ya tiene paginación cliente simple. Reemplazar por el bloque unificado, manteniendo la lógica de `filtradas` y el slice.
-- Agregar selector de tamaño de página (10/25/50/100) en lugar del `PAGE_SIZE` constante.
+- `opciones[].producto_id` (paquetes dinámicos), o
+- `componentes[].producto_id × componentes[].cantidad` (paquetes legacy),
 
-## Detalles técnicos
+cada uno multiplicado por `cantidad` del item. Acumular el consumo agregado por `insumo_id` (igual que hoy para productos simples) y comparar contra `stock_actual`. El mensaje de error debe nombrar el insumo faltante.
 
-- Para evitar duplicar código en 4 archivos, **extraer un componente reutilizable** `src/components/ui/data-pagination.tsx` (puramente presentacional) con props:
-
-  ```ts
-  interface DataPaginationProps {
-    paginaActual: number;        // 1-based
-    totalItems: number;
-    porPagina: number;
-    onPaginaChange: (p: number) => void;
-    onPorPaginaChange: (n: number) => void;
-    etiqueta?: string;           // p.ej. "productos", "insumos", "compras", "mermas"
-    opcionesPorPagina?: number[];// default [10, 25, 50, 100]
-  }
-  ```
-
-  Internamente calcula `totalPaginas`, `inicio`, `fin` y la lista `numerosPagina` con elipsis (misma lógica de `ProductosTab.tsx` líneas 548-564). Renderiza exactamente el mismo JSX (líneas 683-723).
-
-- Cada pestaña se queda con la responsabilidad de filtrar/cortar sus datos; la paginación es solo UI + estado.
-- Compras seguirá usando paginación server-side: el componente reporta los cambios y el `useEffect` existente refetchea con `from/to`.
-- Las demás (Categorías, Insumos, Mermas) usan `slice` en memoria igual que Productos.
+No se requiere cambio de firma (sigue recibiendo `p_items jsonb`), sólo enriquecer la lógica interna.
 
 ## Archivos afectados
 
-- `src/components/ui/data-pagination.tsx` *(nuevo)*
-- `src/components/categorias/CategoriasManager.tsx`
-- `src/components/inventarios/InsumosTab.tsx`
-- `src/components/inventarios/ComprasTab.tsx`
-- `src/components/inventarios/MermasTab.tsx`
-- *(opcional, refactor)* `src/components/inventarios/ProductosTab.tsx` para que también consuma el nuevo componente y quede una sola fuente de verdad.
+- `src/pages/PosPage.tsx` — `handlePaqueteConfirm`, rama paquete de `handleAddProduct`, `handleUpdateQty`.
+- Nueva migración SQL — redefine `validar_stock_carrito` con soporte de paquetes.
 
 ## Fuera de alcance
 
-- No se cambia la lógica de filtros, búsqueda, ni queries de datos.
-- No se modifica el estilo visual de las tablas ni de los formularios.
+- Cambios en `cartStore.ts`, en `ConfirmVentaDialog.tsx` o en el trigger `descontar_inventario_venta`.
+- Paquetes con más de una unidad de la misma opción se cubren porque ya se cuentan en el `Map<producto_id, cantidad>` que construye `handlePaqueteConfirm`.
