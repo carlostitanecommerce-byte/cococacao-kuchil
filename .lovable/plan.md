@@ -1,79 +1,83 @@
-# ¿Puede haber stock negativo hoy?
+## ¿Es cierto el riesgo de deadlock?
 
-## Diagnóstico
+**Sí, es 100% correcto y real.** Lo verifiqué leyendo el código actual de las funciones en la base de datos.
 
-**Estado actual en producción:** `SELECT * FROM insumos WHERE stock_actual < 0` → **0 filas**. Ningún insumo está en negativo hoy.
+### Lo que encontré
 
-**Revisión de todas las rutas que tocan `insumos.stock_actual`:**
+Confirmado: **ninguna** de las funciones que bloquean `insumos` con `FOR UPDATE` (o que los actualizan, lo cual también toma un row lock) ordena los renglones de `recetas` antes de iterar. Postgres devuelve las filas en el orden físico de la tabla, que **no** está garantizado entre transacciones.
 
-| Función / Trigger | ¿Resta stock? | Protección |
-|---|---|---|
-| `descontar_inventario_venta` (trigger al cobrar) | Sí | `SELECT ... FOR UPDATE` + valida antes de restar ✅ |
-| `registrar_consumo_coworking` (cargo a cuenta) | No resta — sólo valida con `FOR UPDATE`. El descuento real ocurre al cobrar (trigger anterior) ✅ |
-| `registrar_amenity_sesion` | Sí | `FOR UPDATE` + valida antes ✅ |
-| `ajustar_amenity_sesion` | Sí | `UPDATE ... RETURNING` atómico + `RAISE` si queda `< 0` → rollback ✅ |
-| `registrar_merma` | Sí | `FOR UPDATE` + valida antes ✅ |
-| `anular_compra_insumo` | Sí (revierte alta) | `FOR UPDATE` + valida antes ✅ |
-| `aplicar_auditoria_inventario` | Set absoluto | Valida `p_fisico >= 0` ✅ |
-| `sumar_stock_compra` (trigger) | Sólo suma | n/a |
-| `reintegrar_inventario_cancelacion` (trigger) | Sólo suma | n/a |
-| `cancelar_sesion_coworking` / `resolver_cancelacion_item_sesion` | Sólo suman | n/a |
+Funciones afectadas (todas hacen `FOR ... IN SELECT ... FROM recetas WHERE producto_id = ...` sin `ORDER BY`):
 
-**Conclusión:** todas las rutas actuales están blindadas. **Pero hay una laguna estructural:**
+| Función | Cuándo se dispara |
+|---|---|
+| `descontar_inventario_venta` (trigger) | Al insertar `detalle_ventas` con `venta_id` (cobro de POS) |
+| `registrar_consumo_coworking` | Al cargar consumo a cuenta de sesión |
+| `registrar_amenity_sesion` | Al añadir amenity a sesión |
+| `ajustar_amenity_sesion` | Al ajustar cantidad de amenity |
+| `recalcular_amenities_pax` | Al cambiar pax de sesión |
+| `reintegrar_inventario_cancelacion` | Al cancelar venta/ítem |
+| `resolver_cancelacion_item_sesion` | Al aprobar cancelación de ítem |
 
-> ❌ **La columna `insumos.stock_actual` no tiene `CHECK (stock_actual >= 0)`**. Toda la protección vive en código PL/pgSQL. Si en el futuro:
-> - se agrega una RPC nueva que olvida `FOR UPDATE`,
-> - un admin hace un `UPDATE insumos SET stock_actual = ...` manual,
-> - una migración futura introduce un bug,
-> 
-> el negativo se grabaría sin que la base te avise.
+### Escenario real de deadlock
 
-# Plan: defensa en profundidad a nivel DB
-
-Una sola migración, sin tocar código frontend.
-
-## Paso 1 — Agregar CHECK constraint
-
-```sql
-ALTER TABLE public.insumos
-  ADD CONSTRAINT insumos_stock_no_negativo
-  CHECK (stock_actual >= 0)
-  NOT VALID;
-
--- Validar contra datos existentes (ya sabemos que pasan: 0 negativos hoy).
-ALTER TABLE public.insumos
-  VALIDATE CONSTRAINT insumos_stock_no_negativo;
+```text
+T=0  Cajero A vende "Latte"    → bloquea insumo "Leche"
+T=0  Cajero B vende "Chocolate"→ bloquea insumo "Azúcar"
+T=1  Cajero A intenta bloquear "Azúcar"  → espera a B
+T=1  Cajero B intenta bloquear "Leche"   → espera a A
+T=2  Postgres detecta deadlock → cancela una transacción con error 40P01
 ```
 
-Efecto: **cualquier** `INSERT`/`UPDATE` que intente dejar `stock_actual < 0` falla con `ERRCODE 23514` y revierte la transacción completa — incluso si la lógica PL/pgSQL llegara a fallar.
+El cajero perdedor ve un error genérico y debe reintentar. En horas pico (varios productos compartiendo leche, azúcar, vasos, tapas, popotes) la probabilidad crece de forma cuadrática.
 
-## Paso 2 — Mejorar mensaje de error en el trigger principal
+### Por qué el `ORDER BY r.insumo_id` lo resuelve
 
-En `descontar_inventario_venta`, capturar el `check_violation` y reemitir un mensaje legible que nombre el insumo (en lugar de mostrar el SQL crudo al cajero):
+Si **todas** las funciones bloquean insumos en el **mismo orden global** (por `insumo_id` ascendente), es matemáticamente imposible un ciclo de espera: A y B siempre piden "Azúcar" antes que "Leche", uno gana y el otro espera limpio en cola.
+
+# Plan: blindar contra deadlocks (una sola migración SQL)
+
+## Paso 1 — Añadir `ORDER BY r.insumo_id` a cada loop de recetas
+
+Reescribir las 7 funciones listadas arriba para que el `SELECT` interno termine en `ORDER BY r.insumo_id` (o `ORDER BY 1` cuando sólo se selecciona `insumo_id`). Cambio quirúrgico: no se toca la lógica de cada función, sólo el orden.
+
+## Paso 2 — Pre-bloqueo ordenado en `crear_venta_completa`
+
+Una sola venta puede tener varios productos distintos en el ticket. Aunque cada producto individualmente ya quede ordenado tras el Paso 1, **entre productos** del mismo ticket aún se podrían tomar locks en orden incoherente con otra transacción que tenga otro ticket con los mismos insumos.
+
+Solución: al inicio de `crear_venta_completa`, antes de insertar `detalle_ventas`, ejecutar **un solo** `SELECT ... FOR UPDATE` ordenado que pre-bloquee todos los insumos que la venta va a tocar:
 
 ```sql
-EXCEPTION WHEN check_violation THEN
-  RAISE EXCEPTION 'Stock insuficiente para "%": el inventario quedaría negativo',
-    COALESCE(v_nombre_producto, NEW.descripcion, 'producto');
+PERFORM 1 FROM public.insumos
+WHERE id IN (
+  SELECT DISTINCT r.insumo_id
+  FROM public.recetas r
+  WHERE r.producto_id = ANY(<lista de producto_ids del ticket>)
+)
+ORDER BY id
+FOR UPDATE;
 ```
 
-(Esto sólo se dispararía si la validación previa fallara — es el cinturón sobre los tirantes.)
+Esto fija el orden global de locks **por transacción completa**, no sólo por producto. Es la garantía definitiva.
 
 ## Paso 3 — Verificación post-migración
 
-Una sola query de humo:
-
 ```sql
-SELECT conname, contype FROM pg_constraint
-WHERE conrelid = 'public.insumos'::regclass AND conname = 'insumos_stock_no_negativo';
+-- Confirma que ninguna función PL/pgSQL itera recetas sin ORDER BY
+SELECT proname FROM pg_proc
+WHERE pronamespace='public'::regnamespace
+  AND prosrc ILIKE '%FROM%recetas%'
+  AND prosrc NOT ILIKE '%ORDER BY%';
+-- debe devolver 0 filas (o sólo funciones de lectura que no bloquean)
 ```
 
 # Fuera de alcance
 
-- Cambios en `cartStore`, `PosPage`, ni ninguna pantalla. La validación de UX al agregar al carrito ya existe (`validar_stock_carrito` + locks en triggers).
-- No se modifican funciones que ya están correctas — sólo se les agrega un manejador de excepción opcional.
+- No se toca código frontend (cartStore, PosPage, dialogs, etc.).
+- No se modifica la lógica de negocio: mismas validaciones, mismos errores legibles, mismas RLS.
+- No se altera el `CHECK (stock_actual >= 0)` ni los mensajes de error agregados ayer.
 
 # Riesgos
 
-- **Cero riesgo de datos:** los datos actuales ya cumplen el constraint.
-- **Riesgo operativo controlado:** si alguna ruta tuviera un bug latente que produjera negativos en ciertas condiciones, ahora fallaría visiblemente en lugar de corromper inventario silenciosamente — eso es exactamente lo que se quiere.
+- **Cero riesgo funcional:** `ORDER BY` no cambia qué filas se procesan, sólo en qué orden. Resultados idénticos.
+- **Microcosto de performance:** un `ORDER BY` sobre 2–8 filas de recetas es despreciable (índice PK en `insumo_id`).
+- **Único riesgo de proceso:** son 7 funciones a reescribir en una migración larga. Mitigación: copiar cada `CREATE OR REPLACE FUNCTION` actual y añadir sólo la cláusula `ORDER BY`.
