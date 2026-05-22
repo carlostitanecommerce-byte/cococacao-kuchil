@@ -130,6 +130,7 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
               {ventas.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">No hay ventas en esta fecha</p>
               ) : (
+                <>
                 <Table>
                   <TableHeader>
                     <TableRow>
