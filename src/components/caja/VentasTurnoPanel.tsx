@@ -73,7 +73,14 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
+  useEffect(() => { setPaginaActual(1); }, [selectedDate, porPagina]);
+
   const completadas = ventas.filter(v => v.estado === 'completada');
+
+  const ventasPagina = useMemo(() => {
+    const inicio = (paginaActual - 1) * porPagina;
+    return ventas.slice(inicio, inicio + porPagina);
+  }, [ventas, paginaActual, porPagina]);
 
   const metodoPagoLabel: Record<string, string> = {
     efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', mixto: 'Mixto',
