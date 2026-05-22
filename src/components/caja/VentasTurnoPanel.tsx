@@ -45,6 +45,8 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
   const [editPagoVenta, setEditPagoVenta] = useState<VentaTurno | null>(null);
   const [reprintVenta, setReprintVenta] = useState<VentaTurno | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
 
   const fetchVentas = async () => {
     const { desdeISO, hastaISO } = cdmxDateRange(selectedDate, selectedDate);
