@@ -47,6 +47,17 @@ const PosPage = () => {
     ensureOwner(user?.id ?? null);
   }, [user?.id, ensureOwner]);
 
+  // Aviso al usuario si intenta cerrar la pestaña con carrito pendiente (no aplica a sesiones de coworking importadas)
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (items.length === 0 || coworkingSessionId) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [items.length, coworkingSessionId]);
+
   // Detección de contexto: cargar sesión de coworking desde URL
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
