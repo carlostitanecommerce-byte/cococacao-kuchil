@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle, Lock } from 'lucide-react';
+import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle, Lock, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useCartStore } from '@/stores/cartStore';
@@ -14,6 +14,11 @@ import { useVentaConfig } from '@/components/caja/useVentaConfig';
 import { ConfirmVentaDialog } from '@/components/caja/ConfirmVentaDialog';
 import { useCajaSession } from '@/hooks/useCajaSession';
 import { verificarStock } from '@/hooks/useValidarStock';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { VentaSummary, MixedPayment, CartItem } from '@/components/pos/types';
 
 type MetodoPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
