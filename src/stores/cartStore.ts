@@ -113,6 +113,11 @@ export const useCartStore = create<CartState>()(
         }),
       removeItem: (key) =>
         set({ items: get().items.filter((i) => keyOf(i) !== key) }),
+      // NOTA: clear() solo descarta la vista local. NO toca la base de datos.
+      // Las líneas con `open_account_detalle_id` siguen vivas en `detalle_ventas`
+      // (venta_id NULL, coworking_session_id presente) y reaparecen al re-importar
+      // la sesión. Eliminar consumos reales requiere flujo de cancelación:
+      // solicitudes_cancelacion_sesiones / cancelaciones_items_sesion.
       clear: () => set({ items: [], coworkingSessionId: null, clienteNombre: null, tarifaUpsells: {} }),
       importCoworkingSession: (items, sessionId, clienteNombre) =>
         set({ items: items.map(ensureLineId), coworkingSessionId: sessionId, clienteNombre }),
