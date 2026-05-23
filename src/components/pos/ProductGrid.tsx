@@ -101,7 +101,6 @@ export function ProductGrid({ onAdd }: Props) {
   };
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const activeBadgeRef = useRef<HTMLSpanElement | null>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
 
