@@ -43,17 +43,29 @@ export function CajaCheckoutPanel() {
   const [mixed, setMixed] = useState<MixedPayment>({ efectivo: 0, tarjeta: 0, transferencia: 0 });
   const [summary, setSummary] = useState<VentaSummary | null>(null);
   const [incrementing, setIncrementing] = useState<string | null>(null);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   const subtotal = useMemo(() => items.reduce((s, i) => s + i.subtotal, 0), [items]);
+  const openAccountCount = useMemo(
+    () => items.filter((i) => !!i.open_account_detalle_id).length,
+    [items]
+  );
 
   const propina = useMemo(() => {
     if (propinaPct === 'manual') return Math.max(0, parseFloat(propinaManual) || 0);
     return +(subtotal * (propinaPct / 100)).toFixed(2);
   }, [propinaPct, propinaManual, subtotal]);
 
+  // Validaciones de propina (punto 6)
+  const propinaPctSobreSubtotal = subtotal > 0 ? (propina / subtotal) * 100 : 0;
+  const propinaExcedeSubtotal = propina > subtotal && subtotal > 0;
+  const propinaInusual = !propinaExcedeSubtotal && propinaPctSobreSubtotal > 50;
+
   // Comisión bancaria SIEMPRE sobre subtotal de productos cobrados con tarjeta,
   // nunca sobre propina. En mixto, restamos la propina si el cajero indicó que
-  // está incluida en el monto de tarjeta (propinaEnDigital).
+  // está incluida en el monto de tarjeta (propinaEnDigital). Esta es la fuente
+  // de verdad de la comisión bancaria — cualquier cambio aquí afecta reportes
+  // contables (ver mem://features/accounting-export-unified).
   const tarjetaBaseProductos = (() => {
     if (metodoPago === 'tarjeta') return subtotal;
     if (metodoPago === 'mixto' && mixed.tarjeta > 0) {
@@ -67,7 +79,12 @@ export function CajaCheckoutPanel() {
   const total = +(subtotal + propina).toFixed(2);
 
   const sumaMixta = +(mixed.efectivo + mixed.tarjeta + mixed.transferencia).toFixed(2);
-  const mixtoValido = metodoPago !== 'mixto' || Math.abs(sumaMixta - total) < 0.01;
+  const sumaMixtaCuadra = metodoPago !== 'mixto' || Math.abs(sumaMixta - total) < 0.01;
+  // Punto 5: si la propina se cobra por terminal en mixto, el monto de tarjeta
+  // debe alcanzar para cubrir al menos la propina.
+  const mixtoTarjetaCubrePropina =
+    metodoPago !== 'mixto' || !propinaEnDigital || propina === 0 || mixed.tarjeta + 0.01 >= propina;
+  const mixtoValido = sumaMixtaCuadra && mixtoTarjetaCubrePropina;
 
   const handleMetodoPagoChange = (v: MetodoPago) => {
     setMetodoPago(v);
@@ -78,6 +95,14 @@ export function CajaCheckoutPanel() {
 
   const isReadOnlyLine = (item: CartItem) =>
     item.tipo_concepto === 'coworking' || !!item.open_account_detalle_id;
+
+  const handleLimpiarClick = () => {
+    if (coworkingSessionId && openAccountCount > 0) {
+      setConfirmClearOpen(true);
+    } else {
+      clear();
+    }
+  };
 
   const handleIncrement = async (item: CartItem) => {
     const key = item.lineId ?? item.producto_id;
