@@ -4,12 +4,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Search, Users, Clock, Plus, Ban } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Search, Users, Clock, Plus, Ban, Wallet } from 'lucide-react';
 import type { CartItem } from '@/components/pos/types';
 import { CancelSessionDialog } from '@/components/coworking/CancelSessionDialog';
 import type { CoworkingSession, TarifaSnapshot } from '@/components/coworking/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { useCartStore } from '@/stores/cartStore';
 
 interface ActiveSession {
   id: string;
@@ -23,6 +34,7 @@ interface ActiveSession {
   es_privado: boolean;
   tarifa_id: string | null;
   tarifa_snapshot: TarifaSnapshot | null;
+  monto_acumulado: number;
 }
 
 interface Props {
@@ -43,10 +55,18 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   const { roles } = useAuth();
   const { toast } = useToast();
   const isAdmin = roles.includes('administrador');
+  const puedeCancelar =
+    roles.includes('administrador') ||
+    roles.includes('supervisor') ||
+    roles.includes('caja');
+  const cartItemCount = useCartStore((s) => s.items.length);
+  const activeCartSessionId = useCartStore((s) => s.coworkingSessionId);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
+  const [pendingImport, setPendingImport] = useState<ActiveSession | null>(null);
+
 
   const fetchSessions = async () => {
     try {
@@ -114,7 +134,18 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   }, [pendingSessionId, loading, sessions]);
 
   const handleSelect = async (session: ActiveSession) => {
+    // Confirmación previa si hay carrito sin guardar y se cambiará de sesión
+    const isSameSession = activeCartSessionId === session.id;
+    if (cartItemCount > 0 && !isSameSession) {
+      setPendingImport(session);
+      return;
+    }
+    await doImport(session);
+  };
+
+  const doImport = async (session: ActiveSession) => {
     const snapshot = session.tarifa_snapshot;
+
 
     if (!snapshot) {
       toast({
@@ -282,7 +313,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
                 >
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{s.cliente_nombre}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                       <span>{s.area_nombre}</span>
                       <Badge variant="outline" className="text-[10px] px-1 h-4">
                         {s.pax_count} pax
@@ -291,33 +322,42 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
                         <Clock className="h-3 w-3" />
                         {formatDuration(elapsed)}
                       </span>
+                      <span
+                        className="flex items-center gap-1 font-mono text-foreground/80"
+                        title="Monto acumulado (referencia previa al cobro). El total final se calcula al importar."
+                      >
+                        <Wallet className="h-3 w-3" />
+                        ${Number(s.monto_acumulado ?? 0).toFixed(2)}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                      onClick={() => setSessionToCancel({
-                        id: s.id,
-                        cliente_nombre: s.cliente_nombre,
-                        area_id: s.area_id,
-                        pax_count: s.pax_count,
-                        usuario_id: (s as any).usuario_id ?? '',
-                        fecha_inicio: s.fecha_inicio,
-                        fecha_fin_estimada: s.fecha_fin_estimada,
-                        fecha_salida_real: (s as any).fecha_salida_real ?? null,
-                        estado: (s as any).estado ?? 'pendiente_pago',
-                        monto_acumulado: (s as any).monto_acumulado ?? 0,
-                        tarifa_id: s.tarifa_id,
-                        upsell_producto_id: null,
-                        upsell_precio: null,
-                        tarifa_snapshot: s.tarifa_snapshot,
-                      })}
-                      title="Cancelar sesión"
-                    >
-                      <Ban className="h-3.5 w-3.5" />
-                    </Button>
+                    {puedeCancelar && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        onClick={() => setSessionToCancel({
+                          id: s.id,
+                          cliente_nombre: s.cliente_nombre,
+                          area_id: s.area_id,
+                          pax_count: s.pax_count,
+                          usuario_id: (s as any).usuario_id ?? '',
+                          fecha_inicio: s.fecha_inicio,
+                          fecha_fin_estimada: s.fecha_fin_estimada,
+                          fecha_salida_real: (s as any).fecha_salida_real ?? null,
+                          estado: (s as any).estado ?? 'pendiente_pago',
+                          monto_acumulado: (s as any).monto_acumulado ?? 0,
+                          tarifa_id: s.tarifa_id,
+                          upsell_producto_id: null,
+                          upsell_precio: null,
+                          tarifa_snapshot: s.tarifa_snapshot,
+                        })}
+                        title="Cancelar sesión"
+                      >
+                        <Ban className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant={isImported ? 'secondary' : 'default'}
@@ -341,6 +381,31 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
         onClose={() => setSessionToCancel(null)}
         onSuccess={fetchSessions}
       />
+
+      <AlertDialog open={!!pendingImport} onOpenChange={(o) => !o && setPendingImport(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Reemplazar el carrito actual?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El carrito tiene {cartItemCount} producto{cartItemCount !== 1 ? 's' : ''} sin guardar.
+              Si importas la sesión de <span className="font-medium">{pendingImport?.cliente_nombre}</span>,
+              el carrito actual se reemplazará y perderás esos productos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                const target = pendingImport;
+                setPendingImport(null);
+                if (target) await doImport(target);
+              }}
+            >
+              Reemplazar e importar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
