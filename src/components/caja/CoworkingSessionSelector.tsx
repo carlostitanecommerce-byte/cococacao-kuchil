@@ -49,33 +49,43 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
 
   const fetchSessions = async () => {
-    const { data: sessData } = await supabase
-      .from('coworking_sessions')
-      .select('id, cliente_nombre, area_id, pax_count, fecha_inicio, fecha_fin_estimada, tarifa_id, usuario_id, estado, monto_acumulado, fecha_salida_real, tarifa_snapshot')
-      .eq('estado', 'pendiente_pago');
+    try {
+      const { data: sessData, error: sessErr } = await supabase
+        .from('coworking_sessions')
+        .select('id, cliente_nombre, area_id, pax_count, fecha_inicio, fecha_fin_estimada, tarifa_id, usuario_id, estado, monto_acumulado, fecha_salida_real, tarifa_snapshot')
+        .eq('estado', 'pendiente_pago');
 
-    if (!sessData || sessData.length === 0) { setSessions([]); setLoading(false); return; }
+      if (sessErr) throw sessErr;
+      if (!sessData || sessData.length === 0) { setSessions([]); return; }
 
-    const areaIds = [...new Set((sessData as any[]).map(s => s.area_id))];
-    const { data: areasData } = await supabase
-      .from('areas_coworking')
-      .select('id, nombre_area, es_privado')
-      .in('id', areaIds);
+      const areaIds = [...new Set((sessData as any[]).map(s => s.area_id))];
+      const { data: areasData } = await supabase
+        .from('areas_coworking')
+        .select('id, nombre_area, es_privado')
+        .in('id', areaIds);
 
-    const areaMap = new Map(areasData?.map(a => [a.id, a]) ?? []);
+      const areaMap = new Map(areasData?.map(a => [a.id, a]) ?? []);
 
-    setSessions((sessData as any[]).map((s: any) => {
-      const area = areaMap.get(s.area_id);
-      return {
-        ...s,
-        area_nombre: area?.nombre_area ?? 'Desconocida',
-        es_privado: area?.es_privado ?? false,
-        fecha_salida_real: s.fecha_salida_real ?? null,
-        tarifa_id: s.tarifa_id ?? null,
-        tarifa_snapshot: (s.tarifa_snapshot as TarifaSnapshot | null) ?? null,
-      };
-    }));
-    setLoading(false);
+      setSessions((sessData as any[]).map((s: any) => {
+        const area = areaMap.get(s.area_id);
+        return {
+          ...s,
+          area_nombre: area?.nombre_area ?? 'Desconocida',
+          es_privado: area?.es_privado ?? false,
+          fecha_salida_real: s.fecha_salida_real ?? null,
+          tarifa_id: s.tarifa_id ?? null,
+          tarifa_snapshot: (s.tarifa_snapshot as TarifaSnapshot | null) ?? null,
+        };
+      }));
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: 'No se pudieron cargar las sesiones',
+        description: e?.message ?? 'Error desconocido',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
