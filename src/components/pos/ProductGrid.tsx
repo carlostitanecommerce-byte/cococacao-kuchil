@@ -164,16 +164,12 @@ export function ProductGrid({ onAdd }: Props) {
                 return (
                   <Badge
                     key={cat}
-                    asChild
+                    ref={active ? (activeBadgeRef as any) : undefined}
                     variant={active ? 'default' : 'outline'}
                     className="cursor-pointer select-none text-xs px-2 py-0.5 shrink-0 whitespace-nowrap snap-start"
+                    onClick={() => setCategoriaActiva(prev => prev === cat ? null : cat)}
                   >
-                    <span
-                      ref={active ? activeBadgeRef : undefined}
-                      onClick={() => setCategoriaActiva(prev => prev === cat ? null : cat)}
-                    >
-                      {cat}
-                    </span>
+                    {cat}
                   </Badge>
                 );
               })}
