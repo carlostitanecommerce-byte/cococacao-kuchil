@@ -12,6 +12,7 @@ interface VentaResumen {
   folio: number;
   fecha: string;
   metodo_pago: string;
+  total_bruto: number;
   total_neto: number;
   iva: number;
   monto_propina: number;
@@ -53,7 +54,8 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
       return;
     }
     try {
-      const total = Number(venta.total_neto) + Number(venta.monto_propina);
+      // Cobrado al cliente = lo que pagó en su terminal/efectivo (no el neto del negocio).
+      const total = Number(venta.total_bruto) + Number(venta.monto_propina);
       await supabase.from('audit_logs').insert({
         user_id: user.id,
         accion: 'reimpresion_ticket',
@@ -61,6 +63,7 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
         metadata: {
           venta_id: venta.id,
           folio: venta.folio,
+          total_bruto: venta.total_bruto,
           total_neto: venta.total_neto,
           monto_propina: venta.monto_propina,
           usuario_atendio: usuarioNombre,
@@ -137,7 +140,8 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
     }
   }
 
-  const subtotalSinIva = venta.total_neto - venta.iva;
+  // Base facturable: se calcula sobre lo cobrado al cliente (total_bruto), NO sobre el neto del negocio.
+  const subtotalSinIva = Number(venta.total_bruto) - Number(venta.iva);
   const metodoPagoLabel: Record<string, string> = {
     efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', mixto: 'Mixto',
   };
@@ -216,7 +220,7 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
 
             <div className="flex justify-between font-bold text-base">
               <span>TOTAL</span>
-              <span>${(Number(venta.total_neto) + Number(venta.monto_propina)).toFixed(2)}</span>
+              <span>${(Number(venta.total_bruto) + Number(venta.monto_propina)).toFixed(2)}</span>
             </div>
 
             <div className="text-xs text-center space-y-0.5">
