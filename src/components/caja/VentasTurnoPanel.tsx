@@ -48,8 +48,11 @@ interface Props {
   cajaAbierta?: CajaAbierta | null;
 }
 
+const QUERY_LIMIT = 200;
+
 export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
   const [ventas, setVentas] = useState<VentaTurno[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [open, setOpen] = useState(false);
   const [cancelVenta, setCancelVenta] = useState<VentaTurno | null>(null);
   const [editPagoVenta, setEditPagoVenta] = useState<VentaTurno | null>(null);
