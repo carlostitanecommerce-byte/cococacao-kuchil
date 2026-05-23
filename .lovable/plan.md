@@ -1,59 +1,62 @@
-## Plan: Endurecer "Ticket activo" en /caja (puntos 1-4 de la auditoría)
+## Plan: Refinamientos finales del "Ticket activo" en /caja (puntos 5-8)
 
-Alcance: solo los 4 puntos críticos detectados. No se toca diseño general ni flujos no relacionados.
+Alcance: solo los 4 puntos recomendados de la auditoría. Sin cambios de diseño global ni en flujos no relacionados.
 
 ---
 
-### 1. Bloquear edición/eliminación de líneas de cuenta abierta
+### 5. Documentar y exponer la regla de propina en pago mixto
 
-**Problema:** las líneas importadas desde la cuenta abierta (`open_account_detalle_id` presente) ya viven en `detalle_ventas` con `venta_id NULL`. Hoy el panel solo bloquea por `tipo_concepto === 'coworking'`; un producto/amenity importado se puede editar cantidad (cambia la DB silenciosamente y desincroniza KDS/inventario) o borrar (deja la fila huérfana para siempre).
-
-**Cambio en `src/components/caja/CajaCheckoutPanel.tsx`:**
-- Reemplazar la condición `esCoworking` por `esReadOnly = item.tipo_concepto === 'coworking' || !!item.open_account_detalle_id`.
-- Para líneas readonly: ocultar +/- y trash, mostrar `×N` y un badge pequeño "Cuenta abierta" (o "Coworking" para las del cargo de tiempo) para que el cajero entienda por qué no son editables.
-- Mantener el flujo: si se quiere modificar una línea de cuenta abierta, debe hacerse desde Coworking → ManageSessionAccount o vía la solicitud de cancelación de ítems ya existente.
-
-### 2. Re-validación de stock al subir cantidad en el panel
-
-**Problema:** `updateQty(+1)` aumenta sin llamar a `validar_stock_carrito`. El cajero arma un ticket inválido y solo se entera al cobrar.
-
-**Cambio en `src/components/caja/CajaCheckoutPanel.tsx`:**
-- Crear un handler `handleIncrement(item)` que, antes de llamar `updateQty(key, 1)`:
-  - Para `tipo_concepto === 'producto'` simple: llamar `verificarStock(producto_id, cantidad + 1)` (hook ya existente, ya distingue red vs. negocio).
-  - Para `tipo_concepto === 'paquete'` con `componentes`/`opciones`: llamar `validar_stock_carrito` con el carrito tentativo (mismo patrón que `PosPage.handleUpdateQty`), pasando `coworking_session_id` si aplica para que la RPC reste consumos abiertos.
-  - Si falla por negocio: toast con el mensaje devuelto y NO incrementar. Si falla por red: toast de red y no incrementar.
-- Saltar la validación para líneas readonly (no aplica, ya bloqueadas en #1).
-- Antes de `handleCobrar`, mantener la validación final tal como está como red de seguridad.
-
-### 3. Reset de `propinaEnDigital` y consistencia en mixto
-
-**Problema:** al cambiar de método de pago, `propinaEnDigital` queda con su valor anterior; en "mixto" el checkbox está oculto pero la fórmula `tarjetaBaseProductos` lo sigue consultando, restando comisión bajo un supuesto que el cajero no ve.
+**Problema:** la fórmula `tarjetaBaseProductos` asume que la propina digital va dentro de `mixed.tarjeta` cuando `propinaEnDigital === true`, pero el cajero no ve esa suposición y puede armar mixtos donde la propina realmente se cobró en otro canal.
 
 **Cambios en `src/components/caja/CajaCheckoutPanel.tsx`:**
-- Envolver `setMetodoPago` en un handler que también ejecute `setPropinaEnDigital(false)` cuando el nuevo método sea `efectivo`, `transferencia` o `mixto` (solo `tarjeta` puede mantenerlo `true` por elección explícita).
-- Mostrar el checkbox "Propina cobrada por terminal" también en `mixto` cuando `propina > 0` y `mixed.tarjeta > 0`, con etiqueta clara ("Propina incluida en el monto de tarjeta"). Mantener oculto si el cajero pone $0 en tarjeta.
-- Ajustar `tarjetaBaseProductos` para usar el flag solo cuando hay monto en tarjeta; documentar con un comentario corto la regla.
+- Bajo la grilla de distribución mixta, cuando `propinaEnDigital === true` y `mixed.tarjeta > 0`, mostrar una nota pequeña: "Se asume que los $X de propina están incluidos en el monto de tarjeta. La comisión bancaria se calcula sobre el resto."
+- Validar antes de habilitar "Cobrar": si `propinaEnDigital === true` en mixto y `mixed.tarjeta < propina`, marcar mixto inválido con mensaje "El monto de tarjeta debe cubrir al menos la propina digital ($X)".
+- Comentar la regla en el bloque de `tarjetaBaseProductos` para documentar la fuente de verdad.
 
-### 4. Hardening del `caja_id` en el cobro
+### 6. Límites y alertas en propina manual
 
-**Problema:** si se cierra la caja desde otra pestaña, `cajaAbierta` queda `null` y `caja_id` se envía `undefined`, rompiendo reportes y conciliación.
+**Problema:** la propina manual acepta cualquier número, incluso valores absurdos (ej. 100x el subtotal) sin advertencia.
 
-**Cambio en `src/components/caja/CajaCheckoutPanel.tsx` (`handleCobrar`):**
-- Validar al inicio: si `!cajaAbierta?.id`, mostrar toast "La caja se cerró. Reabre una caja para cobrar." y abortar sin abrir `ConfirmVentaDialog`.
-- Deshabilitar también el botón "Cobrar" cuando `!cajaAbierta`.
-- En `useCajaSession`, si ya hay realtime, asegurar que el cierre en otra pestaña refresque `cajaAbierta` (revisar suscripción; si falta, agregar listener de `postgres_changes` sobre `cajas`).
+**Cambios en `src/components/caja/CajaCheckoutPanel.tsx`:**
+- Calcular `propinaPctSobreSubtotal = subtotal > 0 ? propina / subtotal * 100 : 0`.
+- Si `propinaPctSobreSubtotal > 50`, mostrar warning amarillo bajo el input manual: "Propina inusualmente alta (X% del subtotal). Confirma con el cliente." (no bloquea, solo alerta).
+- Si `propina > subtotal`, mostrar error rojo y deshabilitar "Cobrar": "La propina no puede exceder el subtotal del ticket."
+- Mantener `min={0}` y agregar tope duro razonable (p. ej. `max={subtotal * 2}`) solo como hint del input, pero la validación efectiva la hace el chequeo de arriba.
+
+### 7. Indicador visual de líneas de cuenta abierta
+
+**Estado:** ya implementado en el cambio previo (badge "Cuenta abierta" con ícono de candado en cada línea con `open_account_detalle_id`, y badge "Coworking" en cargos de tiempo).
+
+**Refinamiento adicional:**
+- Agregar un encabezado/contador discreto arriba de la lista cuando hay líneas readonly: "N línea(s) de cuenta abierta (no editables aquí)" con tooltip que explique que deben modificarse desde Coworking → Administrar cuenta.
+- Aplicar un fondo sutil (`bg-muted/30`) a las líneas readonly para reforzar la diferenciación visual a un golpe de vista.
+
+### 8. `clear()` deja líneas huérfanas de cuenta abierta
+
+**Problema:** al pulsar "Limpiar" con una sesión de coworking importada, el carrito local se vacía pero las filas en `detalle_ventas` (con `venta_id NULL` y `coworking_session_id` apuntando a la sesión) siguen vivas. Si después se vuelve a importar la sesión, reaparecen — eso es correcto. Pero si el cajero entiende "Limpiar" como "cancelar/abandonar el cobro", queda confundido sobre el estado.
+
+**Cambios:**
+
+**8.a `src/components/caja/CajaCheckoutPanel.tsx`:**
+- Reemplazar `onClick={clear}` por un handler `handleLimpiar` que:
+  - Si hay `coworkingSessionId` y al menos una línea con `open_account_detalle_id`: abrir `AlertDialog` de confirmación con texto: "El ticket contiene consumos de la cuenta abierta de **{clienteNombre}**. Limpiar solo descarta esta vista; los consumos siguen registrados en la sesión y se podrán cobrar más tarde. ¿Continuar?" + botones [Cancelar] [Sí, descartar vista].
+  - Si no hay sesión importada: `clear()` directo como hoy.
+- Después de confirmar: `clear()` (que ya resetea `coworkingSessionId` y `clienteNombre` en el store).
+
+**8.b `src/stores/cartStore.ts`:**
+- (Sin cambios estructurales.) Documentar con comentario sobre `clear()` que NO toca DB; eliminar consumos de la cuenta abierta requiere flujo de cancelación (`solicitudes_cancelacion_sesiones` / `cancelaciones_items_sesion`), no `clear()`.
 
 ---
 
 ### Archivos a tocar
 
-- `src/components/caja/CajaCheckoutPanel.tsx` (1, 2, 3, 4)
-- `src/hooks/useCajaSession.ts` (4, solo si falta listener realtime)
-- Sin migraciones; sin cambios de DB.
+- `src/components/caja/CajaCheckoutPanel.tsx` (5, 6, 7-refinamiento, 8.a)
+- `src/stores/cartStore.ts` (8.b, solo comentario)
+- Sin migraciones, sin cambios de DB.
 
 ### Verificación
 
-1. Importar sesión con consumos POS abiertos → intentar +/-/borrar producto importado: botones ausentes; cambiar cantidad solo posible desde Coworking.
-2. Producto con stock 2 ya en ticket × 2 → click "+": toast "Sin stock suficiente"; cantidad sigue en 2.
-3. Marcar propina digital en tarjeta → cambiar a efectivo → comisión = 0, checkbox resetea. Cambiar a mixto con tarjeta > 0 → checkbox visible y aplica solo si está marcado.
-4. Abrir cobro, cerrar caja desde otra pestaña, intentar "Cobrar": botón deshabilitado y toast informativo; no se crea venta sin `caja_id`.
+- 5: mixto con propina 10% + checkbox digital encendido + tarjeta < propina → mixto inválido, no cobra; tarjeta ≥ propina → nota visible y comisión calcula sobre `tarjeta - propina`.
+- 6: ticket subtotal $100, propina manual $60 → warning amarillo. Propina $120 → error rojo, botón cobrar deshabilitado.
+- 7: importar sesión con 3 consumos → encabezado "3 líneas de cuenta abierta", fondo distinto, badge + candado por línea.
+- 8: con sesión importada → click "Limpiar" abre confirmación; aceptar limpia la vista; los consumos siguen en `detalle_ventas` y reaparecen al re-importar la sesión.

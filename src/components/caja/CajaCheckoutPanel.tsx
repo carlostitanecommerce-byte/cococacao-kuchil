@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle, Lock } from 'lucide-react';
+import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle, Lock, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useCartStore } from '@/stores/cartStore';
@@ -14,6 +14,11 @@ import { useVentaConfig } from '@/components/caja/useVentaConfig';
 import { ConfirmVentaDialog } from '@/components/caja/ConfirmVentaDialog';
 import { useCajaSession } from '@/hooks/useCajaSession';
 import { verificarStock } from '@/hooks/useValidarStock';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { VentaSummary, MixedPayment, CartItem } from '@/components/pos/types';
 
 type MetodoPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
@@ -38,17 +43,29 @@ export function CajaCheckoutPanel() {
   const [mixed, setMixed] = useState<MixedPayment>({ efectivo: 0, tarjeta: 0, transferencia: 0 });
   const [summary, setSummary] = useState<VentaSummary | null>(null);
   const [incrementing, setIncrementing] = useState<string | null>(null);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   const subtotal = useMemo(() => items.reduce((s, i) => s + i.subtotal, 0), [items]);
+  const openAccountCount = useMemo(
+    () => items.filter((i) => !!i.open_account_detalle_id).length,
+    [items]
+  );
 
   const propina = useMemo(() => {
     if (propinaPct === 'manual') return Math.max(0, parseFloat(propinaManual) || 0);
     return +(subtotal * (propinaPct / 100)).toFixed(2);
   }, [propinaPct, propinaManual, subtotal]);
 
+  // Validaciones de propina (punto 6)
+  const propinaPctSobreSubtotal = subtotal > 0 ? (propina / subtotal) * 100 : 0;
+  const propinaExcedeSubtotal = propina > subtotal && subtotal > 0;
+  const propinaInusual = !propinaExcedeSubtotal && propinaPctSobreSubtotal > 50;
+
   // Comisión bancaria SIEMPRE sobre subtotal de productos cobrados con tarjeta,
   // nunca sobre propina. En mixto, restamos la propina si el cajero indicó que
-  // está incluida en el monto de tarjeta (propinaEnDigital).
+  // está incluida en el monto de tarjeta (propinaEnDigital). Esta es la fuente
+  // de verdad de la comisión bancaria — cualquier cambio aquí afecta reportes
+  // contables (ver mem://features/accounting-export-unified).
   const tarjetaBaseProductos = (() => {
     if (metodoPago === 'tarjeta') return subtotal;
     if (metodoPago === 'mixto' && mixed.tarjeta > 0) {
@@ -62,7 +79,12 @@ export function CajaCheckoutPanel() {
   const total = +(subtotal + propina).toFixed(2);
 
   const sumaMixta = +(mixed.efectivo + mixed.tarjeta + mixed.transferencia).toFixed(2);
-  const mixtoValido = metodoPago !== 'mixto' || Math.abs(sumaMixta - total) < 0.01;
+  const sumaMixtaCuadra = metodoPago !== 'mixto' || Math.abs(sumaMixta - total) < 0.01;
+  // Punto 5: si la propina se cobra por terminal en mixto, el monto de tarjeta
+  // debe alcanzar para cubrir al menos la propina.
+  const mixtoTarjetaCubrePropina =
+    metodoPago !== 'mixto' || !propinaEnDigital || propina === 0 || mixed.tarjeta + 0.01 >= propina;
+  const mixtoValido = sumaMixtaCuadra && mixtoTarjetaCubrePropina;
 
   const handleMetodoPagoChange = (v: MetodoPago) => {
     setMetodoPago(v);
@@ -73,6 +95,14 @@ export function CajaCheckoutPanel() {
 
   const isReadOnlyLine = (item: CartItem) =>
     item.tipo_concepto === 'coworking' || !!item.open_account_detalle_id;
+
+  const handleLimpiarClick = () => {
+    if (coworkingSessionId && openAccountCount > 0) {
+      setConfirmClearOpen(true);
+    } else {
+      clear();
+    }
+  };
 
   const handleIncrement = async (item: CartItem) => {
     const key = item.lineId ?? item.producto_id;
@@ -122,7 +152,19 @@ export function CajaCheckoutPanel() {
       toast.error('La caja se cerró. Reabre una caja para cobrar.');
       return;
     }
-    if (!mixtoValido) { toast.error(`Pagos mixtos suman $${sumaMixta.toFixed(2)} pero el total es $${total.toFixed(2)}`); return; }
+    if (propinaExcedeSubtotal) {
+      toast.error('La propina no puede exceder el subtotal del ticket.');
+      return;
+    }
+    if (!sumaMixtaCuadra) {
+      toast.error(`Pagos mixtos suman $${sumaMixta.toFixed(2)} pero el total es $${total.toFixed(2)}`);
+      return;
+    }
+    if (!mixtoTarjetaCubrePropina) {
+      toast.error(`El monto de tarjeta debe cubrir al menos la propina digital ($${propina.toFixed(2)}).`);
+      return;
+    }
+
 
     const ventaSummary: VentaSummary = {
       items,
@@ -165,7 +207,7 @@ export function CajaCheckoutPanel() {
           <ShoppingCart className="h-5 w-5" /> Ticket activo
         </h2>
         {items.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={clear} className="text-destructive hover:text-destructive">
+          <Button variant="ghost" size="sm" onClick={handleLimpiarClick} className="text-destructive hover:text-destructive">
             Limpiar
           </Button>
         )}
@@ -176,6 +218,23 @@ export function CajaCheckoutPanel() {
           <Badge variant="outline" className="mr-2">Coworking</Badge>
           <span className="font-medium">{clienteNombre}</span>
         </div>
+      )}
+
+      {openAccountCount > 0 && (
+        <TooltipProvider>
+          <div className="px-4 py-1.5 bg-muted/40 border-b border-border text-[11px] text-muted-foreground flex items-center gap-1.5">
+            <Lock className="h-3 w-3" />
+            <span>{openAccountCount} línea{openAccountCount !== 1 ? 's' : ''} de cuenta abierta (no editables aquí)</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="inline-flex"><Info className="h-3 w-3" /></button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                Para modificar cantidades o eliminar consumos de la cuenta abierta usa Coworking → Administrar cuenta. Aquí solo se cobran.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0 max-h-[40vh]">
@@ -192,7 +251,8 @@ export function CajaCheckoutPanel() {
             const k = item.lineId ?? item.producto_id;
             const isBusy = incrementing === k;
             return (
-              <div key={k} className="flex items-center gap-2 text-sm border border-border rounded-md p-2">
+              <div key={k} className={`flex items-center gap-2 text-sm border border-border rounded-md p-2 ${readOnly ? 'bg-muted/30' : ''}`}>
+
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{item.nombre}</p>
                   <div className="flex items-center gap-2">
@@ -275,9 +335,23 @@ export function CajaCheckoutPanel() {
                   </div>
                 ))}
               </div>
-              {!mixtoValido && (
+              {!sumaMixtaCuadra && (
                 <p className="text-xs text-destructive flex items-center gap-1">
                   <AlertCircle className="h-3 w-3" /> Suma actual: ${sumaMixta.toFixed(2)}
+                </p>
+              )}
+              {sumaMixtaCuadra && !mixtoTarjetaCubrePropina && (
+                <p className="text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  El monto de tarjeta debe cubrir al menos la propina (${propina.toFixed(2)}).
+                </p>
+              )}
+              {propinaEnDigital && propina > 0 && mixed.tarjeta > 0 && mixtoTarjetaCubrePropina && (
+                <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                  <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                  <span>
+                    Se asumen ${propina.toFixed(2)} de propina dentro de tarjeta. La comisión se calcula sobre el resto (${Math.max(0, mixed.tarjeta - propina).toFixed(2)}).
+                  </span>
                 </p>
               )}
             </div>
@@ -314,6 +388,18 @@ export function CajaCheckoutPanel() {
                 onChange={(e) => setPropinaManual(e.target.value)}
                 className="h-8 text-sm mt-1"
               />
+            )}
+            {propinaExcedeSubtotal && (
+              <p className="text-xs text-destructive flex items-center gap-1 mt-1">
+                <AlertCircle className="h-3 w-3" />
+                La propina no puede exceder el subtotal del ticket.
+              </p>
+            )}
+            {propinaInusual && (
+              <p className="text-xs text-amber-600 dark:text-amber-500 flex items-center gap-1 mt-1">
+                <AlertTriangle className="h-3 w-3" />
+                Propina inusualmente alta ({propinaPctSobreSubtotal.toFixed(0)}% del subtotal). Confirma con el cliente.
+              </p>
             )}
             {showPropinaDigitalCheckbox && (
               <div className="flex items-center gap-2 mt-1">
@@ -367,7 +453,7 @@ export function CajaCheckoutPanel() {
             size="lg"
             className="w-full"
             onClick={handleCobrar}
-            disabled={!mixtoValido || !cajaAbierta}
+            disabled={!mixtoValido || !cajaAbierta || propinaExcedeSubtotal}
           >
             <CreditCard className="mr-2 h-4 w-4" />
             Cobrar ${total.toFixed(2)}
@@ -380,6 +466,27 @@ export function CajaCheckoutPanel() {
         onClose={() => setSummary(null)}
         onSuccess={handleSuccess}
       />
+
+      <AlertDialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Descartar esta vista del ticket?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El ticket contiene {openAccountCount} consumo{openAccountCount !== 1 ? 's' : ''} de la cuenta abierta de{' '}
+              <strong>{clienteNombre ?? 'la sesión'}</strong>. Limpiar solo descarta esta vista; los consumos
+              siguen registrados en la sesión y se podrán cobrar más tarde re-importándola desde "Sesiones pendientes de pago".
+              <br /><br />
+              Para eliminar o ajustar consumos reales, usa Coworking → Administrar cuenta.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { clear(); setConfirmClearOpen(false); }}>
+              Sí, descartar vista
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
