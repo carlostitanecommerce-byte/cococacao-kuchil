@@ -73,7 +73,7 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
     let query = supabase
       .from('ventas')
       .select('id, folio, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id, caja_id')
-      .eq('estado', 'completada')
+      .in('estado', ['completada', 'cancelada'])
       .gte('fecha', desdeISO)
       .lte('fecha', hastaISO)
       .order('fecha', { ascending: false })
@@ -128,6 +128,7 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
   useEffect(() => { setPaginaActual(1); }, [selectedDate, porPagina]);
 
   const completadas = ventas.filter(v => v.estado === 'completada');
+  const canceladas = ventas.filter(v => v.estado === 'cancelada');
 
   const ventasPagina = useMemo(() => {
     const inicio = (paginaActual - 1) * porPagina;
@@ -151,7 +152,7 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
           <CollapsibleTrigger asChild>
             <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-3">
               <CardTitle className="text-base flex items-center justify-between">
-                <span>{titulo} ({completadas.length})</span>
+                <span>{titulo} ({completadas.length} completadas · {canceladas.length} canceladas)</span>
                 {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </CardTitle>
             </CardHeader>
@@ -234,13 +235,15 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
                         <TableCell>
                           {v.estado === 'completada' ? (
                             <Badge variant="outline" className="text-xs">Completada</Badge>
-                          ) : (
+                          ) : v.motivo_cancelacion ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Badge variant="destructive" className="text-xs cursor-help">Cancelada</Badge>
                               </TooltipTrigger>
-                              <TooltipContent>{v.motivo_cancelacion ?? 'Sin motivo registrado'}</TooltipContent>
+                              <TooltipContent className="max-w-xs">{v.motivo_cancelacion}</TooltipContent>
                             </Tooltip>
+                          ) : (
+                            <Badge variant="destructive" className="text-xs">Cancelada</Badge>
                           )}
                         </TableCell>
                         <TableCell>
