@@ -34,23 +34,29 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   paquete: { id: string; nombre: string; precio_venta: number } | null;
+  /** Devuelve true si el paquete realmente se agregó al ticket, false si fue rechazado. */
   onConfirm: (payload: {
     opciones: PaqueteOpcionSeleccionada[];
     precioFinal: number;
-  }) => void;
+  }) => Promise<boolean> | boolean;
 }
+
+type StockState = { viable: boolean; motivo?: string };
 
 export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }: Props) {
   const [loading, setLoading] = useState(false);
   const [grupos, setGrupos] = useState<Grupo[]>([]);
-  // Selecciones por grupo: array de opciones (permite repetir la misma)
   const [seleccion, setSeleccion] = useState<Record<string, Opcion[]>>({});
+  const [confirming, setConfirming] = useState(false);
+  // Bloqueo por opcion.id mientras se valida un click puntual
+  const [pendingOption, setPendingOption] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !paquete) return;
     let cancelled = false;
     setLoading(true);
     setSeleccion({});
+    setStockMap({});
     (async () => {
       const { data, error } = await supabase
         .from('paquete_grupos')
@@ -112,80 +118,80 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
   }, [grupos, seleccion]);
 
   // Validación de stock por opción: mapa producto_id -> { viable, motivo? }
-  const [stockMap, setStockMap] = useState<Record<string, { viable: boolean; motivo?: string }>>({});
+  const [stockMap, setStockMap] = useState<Record<string, StockState>>({});
   const [validating, setValidating] = useState(false);
   const validateSeqRef = useRef(0);
   const cartItems = useCartStore(s => s.items);
 
-  // IDs únicos de productos candidatos en el diálogo
   const candidateProductIds = useMemo(() => {
     const ids = new Set<string>();
     for (const g of grupos) for (const op of g.opciones) ids.add(op.producto_id);
     return Array.from(ids);
   }, [grupos]);
 
-  // Recalcular viabilidad de cada opción cuando cambia la selección o el carrito
-  useEffect(() => {
-    if (!open || !paquete || candidateProductIds.length === 0) {
-      setStockMap({});
-      return;
-    }
-
-    const seq = ++validateSeqRef.current;
-    setValidating(true);
-
-    // Componentes ya seleccionados (cuenta cada opción como 1 unidad)
+  // Construye el carrito tentativo incluyendo el paquete actual + 1 unidad extra de productoId
+  const buildTentative = (productoId: string | null) => {
     const seleccionados: Record<string, number> = {};
     for (const g of grupos) {
       for (const op of (seleccion[g.id] ?? [])) {
         seleccionados[op.producto_id] = (seleccionados[op.producto_id] ?? 0) + 1;
       }
     }
-
-    // Snapshot del carrito (sin el paquete tentativo)
+    if (productoId) {
+      seleccionados[productoId] = (seleccionados[productoId] ?? 0) + 1;
+    }
+    const componentes = Object.entries(seleccionados).map(([pid, cant]) => ({
+      producto_id: pid, cantidad: cant,
+    }));
     const cartSnapshot = cartItems.map((i) => ({
       producto_id: i.producto_id,
       cantidad: i.cantidad,
       tipo_concepto: i.tipo_concepto,
       componentes: (i as any).componentes,
     }));
+    return [
+      ...cartSnapshot,
+      ...(componentes.length > 0 || productoId
+        ? [{
+            producto_id: paquete!.id,
+            cantidad: 1,
+            tipo_concepto: 'paquete',
+            componentes,
+          }]
+        : []),
+    ];
+  };
 
-    const buildTentativeForOption = (productoId: string) => {
-      const counts = new Map<string, number>(Object.entries(seleccionados));
-      counts.set(productoId, (counts.get(productoId) ?? 0) + 1);
-      const componentes = Array.from(counts.entries()).map(([pid, cant]) => ({
-        producto_id: pid, cantidad: cant,
-      }));
-      return [
-        ...cartSnapshot,
-        {
-          producto_id: paquete.id,
-          cantidad: 1,
-          tipo_concepto: 'paquete',
-          componentes,
-        },
-      ];
-    };
+  // Recalcular viabilidad de cada opción (fail-closed)
+  useEffect(() => {
+    if (!open || !paquete || candidateProductIds.length === 0) {
+      setStockMap({});
+      return;
+    }
+    const seq = ++validateSeqRef.current;
+    setValidating(true);
 
     (async () => {
       const results = await Promise.all(
         candidateProductIds.map(async (pid) => {
-          const items = buildTentativeForOption(pid);
+          const items = buildTentative(pid);
           const { data, error } = await supabase.rpc('validar_stock_carrito', { p_items: items as any });
-          if (error) return [pid, { viable: true }] as const;
+          if (error) {
+            return [pid, { viable: false, motivo: 'No se pudo validar stock. Intenta de nuevo.' }] as const;
+          }
           const r = data as unknown as { valido: boolean; error?: string };
           return [pid, { viable: !!r?.valido, motivo: r?.error }] as const;
         })
       );
       if (seq !== validateSeqRef.current) return;
-      const next: Record<string, { viable: boolean; motivo?: string }> = {};
+      const next: Record<string, StockState> = {};
       for (const [pid, v] of results) next[pid] = v;
       setStockMap(next);
       setValidating(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, paquete, grupos, seleccion, cartItems, candidateProductIds]);
 
-  // Indica si la selección actual ya es inviable de por sí
   const seleccionInviable = useMemo(() => {
     for (const g of grupos) {
       for (const op of (seleccion[g.id] ?? [])) {
@@ -195,22 +201,41 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
     return false;
   }, [grupos, seleccion, stockMap]);
 
-  const addOpcion = (grupo: Grupo, opcion: Opcion) => {
-    const stockInfo = stockMap[opcion.producto_id];
-    if (stockInfo && !stockInfo.viable) {
-      toast.error(stockInfo.motivo || `Sin stock suficiente para "${opcion.nombre_producto}"`);
+  // Validación final autoritativa al hacer click (fail-closed)
+  const addOpcion = async (grupo: Grupo, opcion: Opcion) => {
+    if (!paquete) return;
+    if (pendingOption) return;
+    const actuales = seleccion[grupo.id] ?? [];
+    if (actuales.length >= grupo.cantidad_incluida) {
+      toast.info(`Solo puedes elegir ${grupo.cantidad_incluida} opción(es) en "${grupo.nombre_grupo}"`);
       return;
     }
-    setSeleccion(prev => {
-      const actuales = prev[grupo.id] ?? [];
-      if (actuales.length >= grupo.cantidad_incluida) {
-        toast.info(`Solo puedes elegir ${grupo.cantidad_incluida} opción(es) en "${grupo.nombre_grupo}"`);
-        return prev;
-      }
-      return { ...prev, [grupo.id]: [...actuales, opcion] };
-    });
-  };
 
+    setPendingOption(opcion.id);
+    try {
+      const tentativo = buildTentative(opcion.producto_id);
+      const { data, error } = await supabase.rpc('validar_stock_carrito', { p_items: tentativo as any });
+      if (error) {
+        toast.error('No se pudo validar stock. Intenta de nuevo.');
+        setStockMap(prev => ({ ...prev, [opcion.producto_id]: { viable: false, motivo: 'No se pudo validar stock' } }));
+        return;
+      }
+      const r = data as unknown as { valido: boolean; error?: string };
+      if (!r?.valido) {
+        toast.error(r?.error || `Sin stock suficiente para "${opcion.nombre_producto}"`);
+        setStockMap(prev => ({ ...prev, [opcion.producto_id]: { viable: false, motivo: r?.error } }));
+        return;
+      }
+      setStockMap(prev => ({ ...prev, [opcion.producto_id]: { viable: true } }));
+      setSeleccion(prev => {
+        const cur = prev[grupo.id] ?? [];
+        if (cur.length >= grupo.cantidad_incluida) return prev;
+        return { ...prev, [grupo.id]: [...cur, opcion] };
+      });
+    } finally {
+      setPendingOption(null);
+    }
+  };
 
   const removeOpcionAt = (grupoId: string, idx: number) => {
     setSeleccion(prev => {
@@ -220,10 +245,14 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
     });
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!paquete) return;
     if (!completo) {
       toast.error('Completa todas las opciones obligatorias');
+      return;
+    }
+    if (seleccionInviable) {
+      toast.error('Hay opciones sin stock suficiente en tu selección');
       return;
     }
     const opciones: PaqueteOpcionSeleccionada[] = [];
@@ -238,12 +267,17 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
         });
       }
     }
-    onConfirm({ opciones, precioFinal: total });
-    onOpenChange(false);
+    setConfirming(true);
+    try {
+      const ok = await Promise.resolve(onConfirm({ opciones, precioFinal: total }));
+      if (ok) onOpenChange(false);
+    } finally {
+      setConfirming(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => { if (!confirming) onOpenChange(o); }}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col p-0">
         <DialogHeader className="p-6 pb-2">
           <DialogTitle className="flex items-center gap-2">
@@ -268,7 +302,7 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
             <div className="space-y-4 pb-4">
               {grupos.map(g => {
                 const elegidas = seleccion[g.id] ?? [];
-                const completo = elegidas.length === g.cantidad_incluida;
+                const grupoCompleto = elegidas.length === g.cantidad_incluida;
                 const cumplido = g.es_obligatorio
                   ? elegidas.length === g.cantidad_incluida
                   : elegidas.length <= g.cantidad_incluida;
@@ -291,26 +325,31 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
 
                     {elegidas.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-3">
-                        {elegidas.map((op, idx) => (
-                          <Badge
-                            key={`${op.id}-${idx}`}
-                            variant="secondary"
-                            className="gap-1 pl-2 pr-1 py-1 text-xs"
-                          >
-                            {op.nombre_producto}
-                            {op.precio_adicional > 0 && (
-                              <span className="opacity-70">+${op.precio_adicional.toFixed(2)}</span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => removeOpcionAt(g.id, idx)}
-                              className="ml-0.5 rounded-sm hover:bg-background p-0.5"
-                              aria-label="Quitar"
+                        {elegidas.map((op, idx) => {
+                          const inviable = stockMap[op.producto_id]?.viable === false;
+                          return (
+                            <Badge
+                              key={`${op.id}-${idx}`}
+                              variant={inviable ? 'destructive' : 'secondary'}
+                              className="gap-1 pl-2 pr-1 py-1 text-xs"
+                              title={inviable ? stockMap[op.producto_id]?.motivo : undefined}
                             >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </Badge>
-                        ))}
+                              {inviable && <AlertTriangle className="h-3 w-3" />}
+                              {op.nombre_producto}
+                              {op.precio_adicional > 0 && (
+                                <span className="opacity-70">+${op.precio_adicional.toFixed(2)}</span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => removeOpcionAt(g.id, idx)}
+                                className="ml-0.5 rounded-sm hover:bg-background/50 p-0.5"
+                                aria-label="Quitar"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -322,21 +361,29 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
                       ) : g.opciones.map(op => {
                         const stockInfo = stockMap[op.producto_id];
                         const sinStock = stockInfo?.viable === false;
-                        const disabled = completo || sinStock;
+                        const sinDatos = !stockInfo; // todavía no validado → fail-closed
+                        const isPending = pendingOption === op.id;
+                        const disabled = grupoCompleto || sinStock || sinDatos || !!pendingOption || validating;
+                        const motivoTitle = sinStock
+                          ? (stockInfo?.motivo || 'Stock insuficiente')
+                          : sinDatos
+                            ? 'Validando stock…'
+                            : undefined;
                         return (
                           <button
                             key={op.id}
                             type="button"
                             disabled={disabled}
                             onClick={() => addOpcion(g, op)}
-                            title={sinStock ? (stockInfo?.motivo || 'Stock insuficiente') : undefined}
+                            title={motivoTitle}
                             className={cn(
                               'flex items-center justify-between gap-2 rounded-md border bg-card px-3 py-2 text-left transition',
                               sinStock
                                 ? 'border-destructive/40 bg-destructive/5'
                                 : 'border-border hover:border-primary hover:bg-primary/5 active:scale-[0.98]',
                               'disabled:cursor-not-allowed',
-                              completo && !sinStock && 'disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-card'
+                              (grupoCompleto && !sinStock) && 'disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-card',
+                              (sinDatos && !sinStock) && 'opacity-60'
                             )}
                           >
                             <span className={cn(
@@ -346,10 +393,14 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
                               {op.nombre_producto}
                             </span>
                             <span className="flex items-center gap-1 shrink-0">
-                              {sinStock ? (
+                              {isPending ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                              ) : sinStock ? (
                                 <Badge variant="outline" className="text-[10px] h-5 border-destructive/40 text-destructive gap-1">
                                   <AlertTriangle className="h-3 w-3" /> Sin stock
                                 </Badge>
+                              ) : sinDatos ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                               ) : (
                                 <>
                                   {op.precio_adicional > 0 && (
@@ -364,7 +415,6 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
                           </button>
                         );
                       })}
-
                     </div>
                   </Card>
                 );
@@ -384,13 +434,15 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
             </div>
           </div>
           <div className="flex gap-2 items-center">
-            {validating && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button onClick={handleConfirm} disabled={loading || !completo || grupos.length === 0 || seleccionInviable}>
-              Agregar al ticket
+            {(validating || confirming) && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={confirming}>Cancelar</Button>
+            <Button
+              onClick={handleConfirm}
+              disabled={loading || confirming || !completo || grupos.length === 0 || seleccionInviable || validating}
+            >
+              {confirming ? 'Validando…' : 'Agregar al ticket'}
             </Button>
           </div>
-
         </DialogFooter>
       </DialogContent>
     </Dialog>
