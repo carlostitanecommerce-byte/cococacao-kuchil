@@ -53,18 +53,23 @@ export function SolicitudesCancelacionPanel() {
 
     const [profilesRes, ventasRes] = await Promise.all([
       supabase.from('profiles').select('id, nombre').in('id', solicitanteIds),
-      supabase.from('ventas').select('id, total_neto, fecha').in('id', ventaIds),
+      supabase.from('ventas').select('id, total_bruto, total_neto, monto_propina, fecha').in('id', ventaIds),
     ]);
 
     const profileMap = new Map((profilesRes.data ?? []).map(p => [p.id, p.nombre]));
     const ventaMap = new Map((ventasRes.data ?? []).map(v => [v.id, v]));
 
-    setSolicitudes(items.map(s => ({
-      ...s,
-      solicitante_nombre: profileMap.get(s.solicitante_id) ?? 'Desconocido',
-      venta_total: ventaMap.get(s.venta_id)?.total_neto ?? 0,
-      venta_fecha: ventaMap.get(s.venta_id)?.fecha,
-    })));
+    setSolicitudes(items.map(s => {
+      const v = ventaMap.get(s.venta_id);
+      // venta_total = monto cobrado al cliente (total_bruto + propina), no el neto del negocio.
+      const cobrado = v ? Number(v.total_bruto ?? 0) + Number(v.monto_propina ?? 0) : 0;
+      return {
+        ...s,
+        solicitante_nombre: profileMap.get(s.solicitante_id) ?? 'Desconocido',
+        venta_total: cobrado,
+        venta_fecha: v?.fecha,
+      };
+    }));
     setLoading(false);
   };
 
@@ -89,7 +94,7 @@ export function SolicitudesCancelacionPanel() {
       // 1. Obtener datos completos de la venta (coworking + caja para detectar post-cierre)
       const { data: ventaData, error: ventaFetchErr } = await supabase
         .from('ventas')
-        .select('id, total_neto, coworking_session_id, caja_id')
+        .select('id, total_bruto, total_neto, monto_propina, coworking_session_id, caja_id')
         .eq('id', solicitud.venta_id)
         .single();
       if (ventaFetchErr || !ventaData) throw ventaFetchErr || new Error('Venta no encontrada');
@@ -106,10 +111,11 @@ export function SolicitudesCancelacionPanel() {
         cajaFolio = cajaData?.folio ?? null;
       }
 
-      // 2. Ejecutar cancelación orquestada
+      // 2. Ejecutar cancelación orquestada — `total` es el monto cobrado al cliente.
+      const cobrado = Number(ventaData.total_bruto ?? 0) + Number(ventaData.monto_propina ?? 0);
       await ejecutarCancelacionVenta({
         ventaId: solicitud.venta_id,
-        total: ventaData.total_neto,
+        total: cobrado,
         motivo: solicitud.motivo,
         coworkingSessionId: ventaData.coworking_session_id ?? null,
         userId: user.id,

@@ -11,7 +11,9 @@ import { ejecutarCancelacionVenta } from '@/lib/cancelacionVentaUtils';
 
 interface VentaBasic {
   id: string;
+  total_bruto: number;
   total_neto: number;
+  monto_propina: number;
   metodo_pago: string;
   fecha: string;
   coworking_session_id: string | null;
@@ -45,13 +47,16 @@ export function CancelVentaDialog({ venta, isAdmin, cajaEstado, cajaFolio, onClo
     onClose();
   };
 
+  // Monto cobrado al cliente (lo que se le va a "devolver" / cancelar a sus ojos).
+  const montoCobradoCliente = Number(venta.total_bruto) + Number(venta.monto_propina);
+
   const handleAdminCancel = async () => {
     if (!user || !motivoValido) return;
     setLoading(true);
     try {
       const res = await ejecutarCancelacionVenta({
         ventaId: venta.id,
-        total: venta.total_neto,
+        total: montoCobradoCliente,
         motivo: motivo.trim(),
         coworkingSessionId: venta.coworking_session_id,
         userId: user.id,
@@ -94,8 +99,14 @@ export function CancelVentaDialog({ venta, isAdmin, cajaEstado, cajaFolio, onClo
       await supabase.from('audit_logs').insert({
         user_id: user.id,
         accion: 'solicitud_cancelacion',
-        descripcion: `Solicitud de cancelación enviada para venta $${venta.total_neto.toFixed(2)}. Motivo: ${motivo.trim()}`,
-        metadata: { venta_id: venta.id, total: venta.total_neto },
+        descripcion: `Solicitud de cancelación enviada para venta $${montoCobradoCliente.toFixed(2)}. Motivo: ${motivo.trim()}`,
+        metadata: {
+          venta_id: venta.id,
+          total: montoCobradoCliente,
+          total_bruto: venta.total_bruto,
+          total_neto: venta.total_neto,
+          monto_propina: venta.monto_propina,
+        },
       });
 
       toast.success('Solicitud de cancelación enviada al administrador');
@@ -140,9 +151,14 @@ export function CancelVentaDialog({ venta, isAdmin, cajaEstado, cajaFolio, onClo
 
           <div className="bg-muted/50 rounded-md p-3 space-y-1 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Total</span>
-              <span className="font-bold">${venta.total_neto.toFixed(2)}</span>
+              <span className="text-muted-foreground">Total cobrado al cliente</span>
+              <span className="font-bold">${montoCobradoCliente.toFixed(2)}</span>
             </div>
+            {venta.monto_propina > 0 && (
+              <p className="text-[11px] text-muted-foreground text-right">
+                Incluye propina de ${Number(venta.monto_propina).toFixed(2)}
+              </p>
+            )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Fecha</span>
               <span>{new Date(venta.fecha).toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short', timeZone: 'America/Mexico_City' })}</span>

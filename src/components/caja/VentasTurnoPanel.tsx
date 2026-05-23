@@ -12,7 +12,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { ChevronDown, ChevronUp, XCircle, RefreshCw, CalendarIcon, Printer, Lock } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { cdmxDateRange } from '@/lib/ventasUtils';
+import { cdmxDateRange, montoCobrado } from '@/lib/ventasUtils';
 import { CancelVentaDialog } from './CancelVentaDialog';
 import { CambiarMetodoPagoDialog } from './CambiarMetodoPagoDialog';
 import { TicketReimprimirDialog } from './TicketReimprimirDialog';
@@ -21,6 +21,7 @@ import { DataPagination } from '@/components/ui/data-pagination';
 interface VentaTurno {
   id: string;
   folio: number;
+  total_bruto: number;
   total_neto: number;
   iva?: number;
   monto_propina: number;
@@ -76,7 +77,7 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
     const { desdeISO, hastaISO } = cdmxDateRange(effectiveDate, effectiveDate);
     let query = supabase
       .from('ventas')
-      .select('id, folio, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id, caja_id', { count: 'exact' })
+      .select('id, folio, total_bruto, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id, caja_id', { count: 'exact' })
       .in('estado', ['completada', 'cancelada'])
       .gte('fecha', desdeISO)
       .lte('fecha', hastaISO)
@@ -264,7 +265,7 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
                             )}
                           </TableCell>
                         )}
-                        <TableCell className="font-medium">${v.total_neto.toFixed(2)}</TableCell>
+                        <TableCell className="font-medium">${montoCobrado(v).toFixed(2)}</TableCell>
                         <TableCell className="text-xs">{metodoPagoLabel[v.metodo_pago] ?? v.metodo_pago}</TableCell>
                         <TableCell>
                           {v.estado === 'completada' ? (

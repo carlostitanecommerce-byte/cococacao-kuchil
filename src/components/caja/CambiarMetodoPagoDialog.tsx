@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 
 interface VentaForEdit {
   id: string;
+  total_bruto: number;
   total_neto: number;
   monto_propina: number;
   metodo_pago: string;
@@ -48,7 +49,8 @@ export function CambiarMetodoPagoDialog({ venta, cajaEstado, cajaFolio, onClose,
   const [motivo, setMotivo] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const totalVenta = venta ? venta.total_neto + venta.monto_propina : 0;
+  // Total a cuadrar = lo que pagó el cliente (total_bruto + propina), no el neto del negocio.
+  const totalVenta = venta ? Number(venta.total_bruto) + Number(venta.monto_propina) : 0;
   const esPostCierre = cajaEstado === 'cerrada';
 
   useEffect(() => {

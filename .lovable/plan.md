@@ -1,180 +1,108 @@
-# Plan P0 — Historial de Ventas Procesadas (2 sprints)
+# Plan: Corregir cálculos de totales en Historial de Ventas y Ticket
 
-Ejecuta los 6 puntos P0 de la auditoría, ajustando P0.1 + P0.3 al modelo "admin sin restricciones / operativo acotado al turno activo" que pediste. Sin cambios de diseño global.
+## Diagnóstico (folio 118 del 22 de mayo)
 
----
+Datos reales en la base de datos:
 
-## Sprint 1 — Visibilidad, permisos y auditoría (P0.1, P0.3, P0.5, P0.6)
+| Campo                  | Valor   | Significado                                              |
+|------------------------|---------|----------------------------------------------------------|
+| `total_bruto`          | 150.00  | Subtotal de productos (paquete), IVA **incluido**        |
+| `iva`                  | 20.69   | IVA contenido dentro de `total_bruto` (150 − 150/1.16)   |
+| `monto_propina`        | 15.00   | Propina (no gravable)                                    |
+| `comisiones_bancarias` | 5.25    | 3.5% sobre `total_bruto` (cobro con tarjeta)             |
+| `total_neto`           | 144.75  | `total_bruto − comisiones_bancarias` (lo que entra neto) |
+| `monto_tarjeta`        | 165.00  | Lo que realmente cargó el cliente en la terminal         |
 
-Objetivo: que cada rol vea y pueda actuar solo sobre lo que le corresponde, y que toda acción quede trazada.
+**El cliente pagó $165.** El cajero ve **$144.75** en el historial y **$159.75** como TOTAL en el ticket. Ambos son incorrectos para la perspectiva de cobro al cliente.
 
-### S1.1 Filtro por rol en `VentasTurnoPanel.tsx` (sustituye P0.1 + P0.3)
+## Causa raíz
 
-- Recibir `cajaAbierta` como prop desde `CajaPage` (ya disponible en el page).
-- Lógica de query según rol:
-  - **Admin:** sin filtro por `caja_id`. Date picker libre (cualquier fecha pasada). Comportamiento actual extendido.
-  - **No-admin (caja/recepción/supervisor operativo):** forzar `eq('caja_id', cajaAbierta.id)`. Date picker oculto o fijado a "Turno actual" (no se permite navegar a otras fechas).
-- Traer `caja_id` en el select y, para admins, también el `estado` de la caja asociada (join en memoria con un fetch paralelo de cajas por id, o `select('*, cajas:caja_id(estado, folio)')`).
-- Renombrar dinámicamente el título:
-  - Admin: "Historial de Ventas" (con selector de fecha).
-  - No-admin: "Ventas del turno actual (#folio)".
-- Mostrar columna/badge `#caja.folio` cuando el rol es admin (trazabilidad cruzada de turnos).
+La doctrina del proyecto (`src/lib/ventasUtils.ts`) define dos conceptos legítimos:
 
-### S1.2 Permisos de acciones por rol y estado de caja
+- **Cobrado al cliente** = `total_bruto + monto_propina` — lo que pagó el cliente en su terminal/efectivo, indistinto de la comisión que descuente el banco. Aplica en UI cara al cliente/cajero.
+- **Ingreso neto del negocio** = `total_neto + monto_propina` — qué entra a la empresa después de la comisión bancaria del adquirente. Aplica en reportes contables.
 
-- **Admin:**
-  - Cancelar y cambiar método: siempre habilitados.
-  - Si la venta pertenece a un **turno cerrado**, los diálogos se abren en modo "Corrección post-cierre":
-    - Banner amarillo de advertencia: "Esta venta pertenece a un turno ya cerrado. El cambio afecta reportes históricos y se registrará como corrección."
-    - Motivo **obligatorio** y con `minLength = 10` (refuerzo sobre el actual `trim() > 0`).
-    - Audit log con `accion = 'correccion_post_cierre'` y `metadata.tipo_correccion = 'cancelacion' | 'cambio_metodo_pago'`, `metadata.caja_id`, `metadata.caja_estado_al_momento = 'cerrada'`.
-  - Si la venta es del turno abierto: audit log con la acción normal (`cancelar_venta` / `cambio_metodo_pago`) como hoy.
-- **No-admin:**
-  - Solo botón "Solicitar cancelación" (reutiliza `CancelVentaDialog` rama `handleSendRequest`, que ya existe).
-  - Nunca botón cancelar directo ni cambiar método (esos quedan ocultos para no-admin).
-  - Como solo ve su turno activo, no puede tocar ventas históricas.
+El error es que en la UI orientada al cliente y al cajero (historial, ticket, diálogos de cambio/cancelación) se está mostrando el **ingreso neto** en lugar del **cobrado al cliente**. Eso confunde porque no coincide con el comprobante físico del POS ni con lo que el cliente recuerda haber pagado.
 
-### S1.3 Auditoría de reimpresiones (P0.5) en `TicketReimprimirDialog.tsx`
+Adicionalmente, en el ticket reimprimido el "Subtotal (sin IVA)" se calcula como `total_neto − iva` (= 124.06), restando dos veces la comisión bancaria del cálculo: el subtotal facturable debe ser `total_bruto − iva` (= 129.31).
 
-- En el handler de `window.print()`, insertar antes de imprimir:
-  ```ts
-  supabase.from('audit_logs').insert({
-    user_id: user.id,
-    accion: 'reimpresion_ticket',
-    descripcion: `Reimpresión de ticket #${folio} ($${total})`,
-    metadata: { venta_id, folio, total_neto, monto_propina, usuario_atendio: usuarioNombre },
-  });
-  ```
-- Sin bloquear la impresión si el insert falla (log a consola). Mostrar toast informativo "Reimpresión registrada".
+## Cambios
 
-### S1.4 Solicitud de cancelación para no-admin (P0.6)
+### 1. `src/lib/ventasUtils.ts` — helpers canónicos + doctrina actualizada
 
-- Cubierto por S1.1 + S1.2 (el botón aparece para no-admin con `isAdmin=false` ya implementado en `CancelVentaDialog`).
-- Verificación: roles operativos pueden iniciar el flujo de `solicitudes_cancelacion` desde Caja sin pasar por POS.
+Reescribir el comentario doctrinal para que diga **explícitamente**:
 
-### Archivos sprint 1
-
-- `src/components/caja/VentasTurnoPanel.tsx`
-- `src/components/caja/CajaCheckoutPanel` (no se toca)
-- `src/components/caja/CancelVentaDialog.tsx` (añadir `cajaEstado?: 'abierta' | 'cerrada'` prop + lógica post-cierre)
-- `src/components/caja/CambiarMetodoPagoDialog.tsx` (mismo prop + banner post-cierre)
-- `src/components/caja/TicketReimprimirDialog.tsx` (audit insert + necesita `useAuth`)
-- `src/pages/CajaPage.tsx` (pasar `cajaAbierta` al panel)
-
-### Verificación sprint 1
-
-- Login como **caja** con caja abierta: solo ve ventas del turno actual, sin selector de fecha, único botón = "Solicitar cancelación".
-- Login como **admin**: ve todas las ventas, navega fechas, ve folio de caja en la tabla. Edita una venta del turno cerrado → aparece banner amarillo, motivo mínimo 10 chars, audit log con `accion='correccion_post_cierre'`.
-- Reimprimir ticket → fila nueva en `audit_logs` con `accion='reimpresion_ticket'`.
-
----
-
-## Sprint 2 — Integridad transaccional (P0.2, P0.4)
-
-Objetivo: que cancelar o cambiar método de pago deje el sistema consistente (caja, stock, coworking, KDS, comisiones).
-
-### S2.1 Recalcular comisiones bancarias en cambio de método (P0.2)
-
-- Crear helper `src/lib/ventasUtils.ts → calcularComisionBancaria(montoTarjeta: number, propinaEnTarjeta: number): number` aplicando 3.5% sobre `max(0, montoTarjeta - propinaEnTarjeta)` (regla ya documentada en memory `accounting-export-unified`).
-- En `CambiarMetodoPagoDialog.handleConfirm`:
-  - Calcular `comisiones_bancarias` nuevo (suponer que en mixto la propina sigue siendo digital si el método nuevo incluye tarjeta; reusar valor existente de `venta.monto_propina`).
-  - Incluir el campo en el `update` a `ventas`.
-- Migración red de seguridad: trigger `BEFORE UPDATE OF metodo_pago, monto_tarjeta, monto_propina ON ventas` que recalcula `comisiones_bancarias` usando la misma fórmula. Garantiza consistencia si en el futuro otro flujo edita la venta.
-
-### S2.2 Cancelación de venta robusta (P0.4) en `CancelVentaDialog.handleAdminCancel`
-
-Orquestar en este orden (con manejo de errores y rollback parcial vía toasts):
-
-1. **Reabrir consumos de cuenta abierta:**
-   ```sql
-   UPDATE detalle_ventas
-     SET venta_id = NULL
-     WHERE venta_id = :venta_id
-       AND open_account_detalle_id IS NOT NULL;
-   ```
-   (vía supabase client). Las líneas quedan disponibles para reimportarse desde la sesión.
-
-2. **Restituir stock** — nueva función SQL:
-   ```sql
-   CREATE OR REPLACE FUNCTION public.revertir_stock_venta(_venta_id uuid)
-   RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-   BEGIN
-     UPDATE insumos i
-       SET stock_actual = stock_actual + sub.qty_repuesta
-       FROM (
-         SELECT r.insumo_id, SUM(r.cantidad_necesaria * dv.cantidad) AS qty_repuesta
-         FROM detalle_ventas dv
-         JOIN recetas r ON r.producto_id = dv.producto_id
-         WHERE dv.venta_id = _venta_id
-           AND dv.tipo_concepto = 'producto'
-         GROUP BY r.insumo_id
-       ) sub
-       WHERE i.id = sub.insumo_id;
-   END;
-   $$;
-   ```
-   Llamar via `supabase.rpc('revertir_stock_venta', { _venta_id })`.
-
-3. **Revertir KDS:** `UPDATE kds_orders SET estado='cancelada' WHERE venta_id = :venta_id` (cocina recibe la reversa por realtime ya existente).
-
-4. **Revertir coworking session** (ya existe): a `pendiente_pago` + `fecha_salida_real = null`. Mantener `monto_acumulado` tal cual (lo que pague el cliente al re-cobrarse se recalculará en el próximo checkout).
-
-5. **Update venta** a `cancelada` + `motivo_cancelacion`.
-
-6. **Audit log enriquecido:**
-   ```ts
-   metadata: {
-     venta_id, total: venta.total_neto, motivo,
-     lineas_open_account_reabiertas: <count>,
-     stock_revertido: true,
-     kds_canceladas: <count>,
-     coworking_session_revertida: !!venta.coworking_session_id,
-     correccion_post_cierre: caja.estado === 'cerrada',
-   }
-   ```
-
-Ejecutar pasos 1-5 secuencialmente con `try/catch`; si falla el paso 5 (update venta) se notifica al admin con el detalle de qué pasos sí se aplicaron para revisión manual (no hay transacciones cliente, por eso es importante el orden: la venta queda como `completada` hasta el final).
-
-### S2.3 Aceptación admin de solicitudes de cancelación
-
-- `SolicitudesCancelacionPanel` debe reusar `handleAdminCancel` (mismo helper extraído) para que al aprobar una solicitud también se ejecuten los pasos 1-4. Extraer la lógica a `src/lib/cancelacionVentaUtils.ts → ejecutarCancelacionVenta(venta, motivo, user)`.
-
-### Archivos sprint 2
-
-- `src/lib/ventasUtils.ts` (helper comisión)
-- `src/lib/cancelacionVentaUtils.ts` (nuevo, orquestación reutilizable)
-- `src/components/caja/CambiarMetodoPagoDialog.tsx`
-- `src/components/caja/CancelVentaDialog.tsx`
-- `src/components/caja/SolicitudesCancelacionPanel.tsx`
-- Migraciones SQL:
-  - función `revertir_stock_venta(uuid)`
-  - trigger `recalc_comisiones_bancarias` sobre `ventas`
-
-### Verificación sprint 2
-
-- Cambiar método de venta tarjeta→efectivo: `comisiones_bancarias` pasa a 0 en DB. Reporte contable refleja el cambio.
-- Cambiar método efectivo→tarjeta $500 con propina $50: `comisiones_bancarias = (500-50) * 0.035 = 15.75`.
-- Cancelar venta con consumos de cuenta abierta: `detalle_ventas.venta_id` queda NULL para esas líneas, `coworking_sessions.estado='pendiente_pago'`, al re-importar la sesión los consumos reaparecen.
-- Cancelar venta de producto con receta: `insumos.stock_actual` aumenta por la cantidad consumida.
-- Cancelar venta con KDS: tarjeta cocina pasa a `cancelada`.
-- Admin aprueba una solicitud pendiente: mismos efectos.
-
----
-
-## Resumen de entregables
-
-```text
-Sprint 1 (UX + permisos + trazabilidad)
-  6 archivos tocados, 0 migraciones.
-  Riesgo: bajo. Cambios aislados al panel de caja.
-
-Sprint 2 (integridad de datos)
-  5 archivos + 2 migraciones (función SQL + trigger).
-  Riesgo: medio. Requiere prueba en staging con ventas de prueba que cubran:
-    - venta simple efectivo
-    - venta mixta con propina
-    - venta con cuenta abierta de coworking
-    - venta de productos con receta multi-insumo
+```
+- Cobrado al cliente   = total_bruto + monto_propina   (UI: ticket, historial, diálogos)
+- Ingreso neto negocio = total_neto  + monto_propina   (reportes contables, cierre caja)
+- Subtotal sin IVA     = total_bruto − iva             (base facturable)
+- IVA                  = total_bruto − (total_bruto / 1.16)
+- Comisión bancaria    = total_bruto − total_neto      (la come el negocio, no el cliente)
 ```
 
-Confirma para arrancar Sprint 1, o pide ajustes (p.ej. qué roles consideras "operativos" para el filtro estricto, o si supervisor debe ver todas las ventas como admin).
+Agregar tres funciones puras (`montoCobrado`, `ingresoNeto`, `subtotalSinIva`) que reciban un objeto con los campos relevantes y devuelvan el número, para que ningún componente reinvente la fórmula.
+
+### 2. `src/components/caja/VentasTurnoPanel.tsx` (línea 267)
+
+Columna "Total" del historial: cambiar `v.total_neto` por `montoCobrado(v)` (= `total_bruto + monto_propina`). Esta es la cifra que cuadra con el ticket y con lo que cargaron al cliente.
+
+### 3. `src/components/caja/TicketReimprimirDialog.tsx`
+
+- Línea 140: `subtotalSinIva = total_bruto − iva` (antes usaba `total_neto`).
+- Línea 219 (TOTAL grande del ticket): `total_bruto + monto_propina` en vez de `total_neto + monto_propina`.
+- Línea 56 (audit log de reimpresión): mismo ajuste para que el log refleje lo cobrado al cliente.
+- Extender la interfaz `VentaResumen` con `total_bruto: number`.
+
+### 4. `src/components/caja/VentasTurnoPanel.tsx` — propagación de `total_bruto`
+
+- **Query Supabase (línea 79):** agregar `total_bruto` al `select(...)`.
+- **Interfaz `VentaTurno` (líneas 21-39):** agregar `total_bruto: number`.
+- **Propagación a hijos:** confirmar que el objeto `v` se pasa íntegro como prop `venta` a:
+  - `<CambiarMetodoPagoDialog venta={editPagoVenta} ... />` (línea 338) — ya pasa el objeto completo, por lo que `total_bruto` viaja gratis al ampliar la interfaz.
+  - `<CancelVentaDialog venta={cancelVenta} ... />` (línea 329) — idem.
+  - `<TicketReimprimirDialog venta={reprintVenta as any} ... />` (línea 346) — idem; remover el `as any` si las interfaces ya coinciden.
+
+### 5. `src/components/caja/CambiarMetodoPagoDialog.tsx` (línea 51)
+
+- Añadir `total_bruto: number` a la interfaz `VentaResumen` local.
+- `totalVenta = total_bruto + monto_propina` (antes usaba `total_neto + monto_propina`). Esto es lo que el cajero ve para validar el desglose mixto: debe coincidir con lo que el cliente paga.
+
+### 6. `src/components/caja/CancelVentaDialog.tsx`
+
+- Añadir `total_bruto: number` (y confirmar `monto_propina: number`) a la interfaz `VentaBasic` local.
+- **Panel de resumen visible (línea 144):** mostrar `${(venta.total_bruto + venta.monto_propina).toFixed(2)}` en lugar de `venta.total_neto.toFixed(2)`.
+- **`handleSendRequest` (líneas 54, 97-98):** registrar en el audit log y en el campo `total` del payload el monto **cobrado al cliente** (`total_bruto + monto_propina`), porque eso es lo que el cliente espera ver reembolsado o cancelado.
+
+### 7. `src/components/caja/SolicitudesCancelacionPanel.tsx`
+
+- **Query (línea 56):** agregar `total_bruto, monto_propina` al `select('id, total_neto, fecha')` para que `venta_total` se calcule con la cifra correcta.
+- **Query (línea 92):** agregar `total_bruto, monto_propina` al select de aprobación.
+- Cambiar `ventaMap.get(s.venta_id)?.total_neto ?? 0` y los usos de `ventaData.total_neto` por `total_bruto + monto_propina`.
+
+### 8. `src/components/caja/ConfirmVentaDialog.tsx` (vista de ticket pos-venta, líneas 501, 517-519)
+
+Verificar coherencia con el ticket reimpreso: el "Subtotal (sin IVA)" en `ticket.subtotal − ticket.iva` está correcto aquí porque `ticket.subtotal` ya es el bruto vivo del carrito (`summary.subtotal`), no `total_neto`. El TOTAL ya usa `summary.total = subtotal + propina`, también correcto. **No requiere cambio**, pero se documenta para evitar regresiones.
+
+### Lo que NO se toca
+
+- `total_bruto` y `total_neto` en `ventas` permanecen como están: la separación es correcta y necesaria para contabilidad.
+- `GeneralTab.tsx` (reportes) sigue usando `total_neto` para "Ingreso Gravable" — eso es correcto contablemente.
+- `CierreCajaDialog.tsx` usa `total_neto` para el resumen del cierre: es el ingreso real para el negocio (el banco deposita el neto, no el bruto). **Es el dato correcto** para arqueo.
+- Trigger `recalc_comisiones_bancarias` y migraciones SQL: sin cambios.
+
+## Verificación
+
+Tras los cambios, para folio 118 se debe ver:
+
+- Historial → columna Total: **$165.00**.
+- Ticket reimpreso:
+  - Subtotal (sin IVA): **$129.31**
+  - IVA: $20.69
+  - Propina: +$15.00
+  - **TOTAL: $165.00**
+- Diálogo "Cambiar método": Total a cuadrar = **$165.00**.
+- Diálogo "Cancelar venta": resumen = **$165.00**, audit log registra $165.00.
+- Panel de solicitudes de cancelación: `venta_total` = **$165.00**.
+- Reporte General → Ingreso Gravable sigue mostrando $144.75 (sin cambio, correcto contablemente).
+
+Se valida visualmente abriendo la venta folio 118 en `/caja` y reimprimiendo el ticket.
