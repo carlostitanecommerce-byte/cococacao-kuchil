@@ -1,52 +1,70 @@
+## Auditoría del flujo actual
+
+**Selección de opciones en `PaqueteSelectorDialog`:** no valida stock. `addOpcion` solo controla la cantidad por grupo; nunca consulta insumos.
+
+**Click en "Agregar al ticket":** `handlePaqueteConfirm` llama `validar_stock_carrito`, pero esa RPC solo lee `producto_id` y `cantidad` de cada ítem. Para un paquete el `producto_id` es el del paquete, que no tiene recetas → los `componentes`/`opciones` se ignoran y la validación pasa siempre. **Bug raíz #1.**
+
+**Botón +/− en el ticket sobre un paquete:** mismo bug (usa la misma RPC).
+
+**Procesamiento de la venta (`ConfirmVentaDialog` + `procesar_venta_atomica`):** los paquetes sí se expanden en filas `detalle_ventas` con `tipo_concepto='producto'` y `producto_id` de cada componente. El trigger `descontar_inventario_venta` descuenta correctamente cada insumo. Es decir, **el descuento al cerrar venta sí funciona**, pero como se permitió llegar hasta ahí con stock insuficiente, la venta revienta con EXCEPTION en el último paso (mala UX).
+
 ## Objetivo
 
-En el ticket del POS:
-1. Quitar la fila redundante de **Subtotal** y renombrar **Total → Subtotal** (manteniendo el estilo grande/primary).
-2. Hacer que el bloque inferior (subtotal + botón "Procesar pago en Caja") quede **siempre fijo** en desktop, sin encogerse cuando crece la lista de productos.
-3. Hacer scroll vertical dentro de la lista de productos del ticket; las tarjetas mantienen su tamaño original.
+1. Bloquear desde el diálogo del paquete las opciones cuyo producto no tiene stock suficiente (visible + clic deshabilitado).
+2. Bloquear el "Agregar al ticket" si la combinación seleccionada deja insumos negativos considerando el carrito existente.
+3. Mantener (verificado) el descuento correcto de insumos al procesar la venta.
 
 ## Cambios
 
-### 1. `src/components/pos/CartPanel.tsx`
+### 1. Migración — arreglar `validar_stock_carrito` para expandir paquetes
 
-- **Footer del ticket (líneas ~237-246):** eliminar la fila de Subtotal y dejar solo la línea actual de Total, cambiando la palabra a "Subtotal" (mismo `text-lg font-bold` y monto en `text-primary`).
-  ```tsx
-  <div className="shrink-0 border-t border-border pt-3 mt-3">
-    <div className="flex justify-between items-center text-lg font-bold">
-      <span>Subtotal:</span>
-      <span className="text-primary">${subtotal.toFixed(2)}</span>
-    </div>
-  </div>
-  ```
-- Añadir `shrink-0` al header del ticket y al banner de coworking, para que solo la lista de productos sea la que se encoja/scrollee.
-- Añadir `shrink-0` a cada tarjeta de producto en `renderItem` (clase del div raíz) para que **conserven su tamaño** cuando hay muchos ítems y se scrollea verticalmente.
+Reescribir la función para que, además de mirar `producto_id` de cada ítem, cuando `tipo_concepto='paquete'` itere sobre el array `componentes` del JSON y sume `receta.cantidad_necesaria × componente.cantidad × item.cantidad` por insumo. Así el RPC actúa como única fuente de verdad y sirve tanto en POS como en cualquier validación futura.
 
-### 2. `src/pages/PosPage.tsx` — layout desktop (líneas ~366-386)
+Pseudo-comportamiento:
+```text
+para cada item del carrito:
+  si tipo_concepto = 'producto':
+    sumar recetas(producto_id) × item.cantidad
+  si tipo_concepto = 'paquete':
+    para cada componente en item.componentes:
+      sumar recetas(componente.producto_id) × componente.cantidad × item.cantidad
+después: comparar uso_acumulado vs (stock_actual − uso_comprometido_coworking)
+```
 
-- El problema: el botón "Procesar pago en Caja" se encoge cuando hay muchos productos porque está como hermano flex sin `shrink-0` y el `CartPanel` usa `h-full` en vez de `flex-1`.
-- Reestructurar el contenido de la columna derecha:
-  ```tsx
-  <div className="lg:col-span-2 border border-border rounded-lg p-3 bg-card flex flex-col min-h-0">
-    <div className="flex-1 min-h-0 flex flex-col">
-      <CartPanel ... />
-    </div>
-    <Button className="mt-3 w-full shrink-0" size="lg" ...>
-      {checkoutLabel}
-      <CheckoutIcon className="ml-2 h-4 w-4" />
-    </Button>
-  </div>
-  ```
-- Con esto el botón queda anclado abajo siempre con su altura natural (`size="lg"`), y el `CartPanel` ocupa el espacio restante. Internamente su lista hace scroll vertical (ya tiene `flex-1 overflow-y-auto min-h-0`), y las tarjetas no se deforman gracias al `shrink-0` añadido en el paso 1.
+Mantiene la misma firma y el mismo formato de retorno (`{valido, error}`), por lo que **no hay cambios en el frontend** salvo aprovecharlo.
 
-## Qué NO cambia
+### 2. `PaqueteSelectorDialog.tsx` — validación por opción en tiempo real
 
-- Lógica de cálculo de subtotal/total (sigue siendo la misma variable `subtotal`).
-- Lógica de carrito, checkout, paquetes, coworking, propinas (las propinas viven en Caja, no en POS).
-- Layout tablet/mobile (Sheet del ticket) — el cambio del footer (paso 1) aplica también ahí y se ve consistente.
-- Grilla de productos del POS, RLS, tablas.
+- Al abrir el diálogo, obtener el carrito actual del `cartStore`.
+- Tras cada cambio en `seleccion`, ejecutar `validar_stock_carrito` con `componentes tentativos = seleccion_actual + 1 unidad de la opción candidata` para cada opción de cada grupo. Hacerlo con `useEffect` debounced (~150 ms) y un solo `Promise.all` que devuelva el set de `opcion.id` no viables.
+- Render: una opción no viable se muestra:
+  - botón `disabled`
+  - badge pequeño `Sin stock` (rojo, `text-destructive`, `border-destructive/40`)
+  - tooltip explicativo opcional con el insumo faltante (el RPC ya devuelve el motivo; cachear el último error por producto_id).
+- Si el usuario ya tenía una opción seleccionada que se vuelve inviable (por un cambio en otra parte), se mantiene tachada pero con badge "Sin stock"; "Agregar al ticket" se deshabilita.
+- Botón "Agregar al ticket" queda deshabilitado adicionalmente si alguna opción seleccionada es inviable.
+
+### 3. `PosPage.tsx`
+
+- `handlePaqueteConfirm` ya llama a `validar_stock_carrito`. Con la RPC corregida (paso 1) esa llamada ahora sí valida componentes — sin cambios de código.
+- `handleUpdateQty` para paquetes idem: misma RPC, ahora correcta.
+
+### 4. Auditoría de descuento al procesar venta (sin cambios de código)
+
+Confirmado: `ConfirmVentaDialog.tsx` (líneas ~145-200) expande cada paquete en N filas `detalle_ventas` de `tipo_concepto='producto'` con el `producto_id` real del componente. El trigger `descontar_inventario_venta` (última versión en `20260522015236_*.sql`) descuenta cada receta. **No requiere migración adicional.** Solo se añade un comentario aclaratorio al RPC corregido para futura referencia.
 
 ## Validación
 
-1. **Desktop con 1-2 items:** el footer muestra solo "Subtotal: $X" grande en primary; el botón queda al fondo con su tamaño normal.
-2. **Desktop con 15+ items:** el botón "Procesar pago en Caja" mantiene su altura `lg`; la lista del ticket scrollea hacia abajo y cada tarjeta conserva su tamaño/contenido completo.
-3. **Tablet/mobile (Sheet):** el footer también muestra solo "Subtotal"; no hay regresiones.
+1. Crear/usar un paquete cuyo componente "Capuchino" use 200 ml de leche; bajar el stock de leche para que solo alcance para 1 capuchino.
+2. Abrir el paquete en POS: el botón "Capuchino" aparece deshabilitado con badge "Sin stock" en cuanto ya hay 1 capuchino en el carrito o ya elegido en otro grupo.
+3. Intentar agregar igual con stock insuficiente vía manipulación → "Agregar al ticket" queda deshabilitado y `validar_stock_carrito` lo rechaza.
+4. Procesar una venta normal con paquetes mixtos → los insumos de cada componente se descuentan exactamente (consultar `insumos.stock_actual` antes/después).
+5. En cuenta de coworking abierta (consumo comprometido), las opciones que rebasen el stock disponible aparecen como "Sin stock" porque la RPC ya descuenta el `uso_comprometido` de detalles `venta_id IS NULL`.
+
+## Qué NO cambia
+
+- `validar_stock_disponible` (productos sueltos).
+- `validar_stock_paquete` (gating inicial al hacer clic en el paquete).
+- `descontar_inventario_venta` y `procesar_venta_atomica`.
+- Lógica de KDS, coworking, propinas, prorrateo de precios en `ConfirmVentaDialog`.
+- Estructura del carrito ni de `detalle_ventas`.
