@@ -234,13 +234,9 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
         )}
       </div>
 
-      <div className="border-t border-border pt-3 mt-3 space-y-1">
-        <div className="flex justify-between items-center text-sm">
-          <span className="text-muted-foreground">Subtotal:</span>
-          <span>${subtotal.toFixed(2)}</span>
-        </div>
+      <div className="shrink-0 border-t border-border pt-3 mt-3">
         <div className="flex justify-between items-center text-lg font-bold">
-          <span>Total:</span>
+          <span>Subtotal:</span>
           <span className="text-primary">${subtotal.toFixed(2)}</span>
         </div>
       </div>
