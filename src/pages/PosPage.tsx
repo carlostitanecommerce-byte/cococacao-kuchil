@@ -186,14 +186,12 @@ const PosPage = () => {
     }
   }, [addOrIncrementProduct, addOrIncrementPaquete, tarifaUpsells]);
 
-  const handlePaqueteConfirm = useCallback(async ({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
-    if (!paqueteCtx) return;
-    // Guardia: el paquete debe tener al menos una opción seleccionada para que el descuento de inventario sea correcto
+  const handlePaqueteConfirm = useCallback(async ({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }): Promise<boolean> => {
+    if (!paqueteCtx) return false;
     if (!opciones || opciones.length === 0) {
       toast.error('Selecciona al menos una opción del paquete');
-      return;
+      return false;
     }
-    // Derivar componentes para compatibilidad con KDS y prorrateo en ConfirmVentaDialog
     const counts = new Map<string, { producto_id: string; nombre: string; cantidad: number }>();
     for (const o of opciones) {
       const prev = counts.get(o.producto_id);
@@ -202,10 +200,9 @@ const PosPage = () => {
     }
     if (counts.size === 0) {
       toast.error('Las opciones del paquete no tienen productos válidos');
-      return;
+      return false;
     }
 
-    // Validar stock acumulado contra carrito actual + paquete tentativo
     const currentItems = useCartStore.getState().items;
     const itemsTentativos = [
       ...currentItems.map((i) => ({
@@ -226,9 +223,9 @@ const PosPage = () => {
     const { data: validacion, error: valErr } = await supabase.rpc('validar_stock_carrito', {
       p_items: itemsTentativos as any,
     });
-    if (valErr) { toast.error('Error al validar stock del paquete'); return; }
+    if (valErr) { toast.error('Error al validar stock del paquete'); return false; }
     const resultado = validacion as unknown as { valido: boolean; error?: string };
-    if (!resultado?.valido) { toast.error(resultado?.error || 'Stock insuficiente para las opciones seleccionadas'); return; }
+    if (!resultado?.valido) { toast.error(resultado?.error || 'Stock insuficiente para las opciones seleccionadas'); return false; }
 
     addOrIncrementPaquete({
       producto_id: paqueteCtx.id,
@@ -242,7 +239,9 @@ const PosPage = () => {
       componentes: Array.from(counts.values()),
     });
     setPaqueteCtx(null);
+    return true;
   }, [paqueteCtx, addOrIncrementPaquete]);
+
 
   const handleUpdateQty = useCallback(async (lineId: string, delta: number) => {
     if (delta > 0) {
