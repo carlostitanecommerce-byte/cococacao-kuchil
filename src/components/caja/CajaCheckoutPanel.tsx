@@ -389,6 +389,18 @@ export function CajaCheckoutPanel() {
                 className="h-8 text-sm mt-1"
               />
             )}
+            {propinaExcedeSubtotal && (
+              <p className="text-xs text-destructive flex items-center gap-1 mt-1">
+                <AlertCircle className="h-3 w-3" />
+                La propina no puede exceder el subtotal del ticket.
+              </p>
+            )}
+            {propinaInusual && (
+              <p className="text-xs text-amber-600 dark:text-amber-500 flex items-center gap-1 mt-1">
+                <AlertTriangle className="h-3 w-3" />
+                Propina inusualmente alta ({propinaPctSobreSubtotal.toFixed(0)}% del subtotal). Confirma con el cliente.
+              </p>
+            )}
             {showPropinaDigitalCheckbox && (
               <div className="flex items-center gap-2 mt-1">
                 <Checkbox
