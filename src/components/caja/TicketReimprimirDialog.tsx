@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Printer } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 
 interface VentaResumen {
@@ -41,9 +42,37 @@ const NEGOCIO_DIRECCION = 'Mérida, Yucatán';
 const NEGOCIO_RFC = ''; // Configurable a futuro
 
 export function TicketReimprimirDialog({ venta, onClose }: Props) {
+  const { user, profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [detalles, setDetalles] = useState<DetalleLinea[]>([]);
   const [usuarioNombre, setUsuarioNombre] = useState('');
+
+  const handlePrint = async () => {
+    if (!venta || !user) {
+      window.print();
+      return;
+    }
+    try {
+      const total = Number(venta.total_neto) + Number(venta.monto_propina);
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        accion: 'reimpresion_ticket',
+        descripcion: `Reimpresión de ticket #${String(venta.folio).padStart(4, '0')} ($${total.toFixed(2)}) por ${profile?.nombre ?? 'Usuario'}`,
+        metadata: {
+          venta_id: venta.id,
+          folio: venta.folio,
+          total_neto: venta.total_neto,
+          monto_propina: venta.monto_propina,
+          usuario_atendio: usuarioNombre,
+        },
+      });
+      toast.success('Reimpresión registrada');
+    } catch (err) {
+      console.error('No se pudo registrar la reimpresión', err);
+    } finally {
+      window.print();
+    }
+  };
 
   useEffect(() => {
     if (!venta) return;
