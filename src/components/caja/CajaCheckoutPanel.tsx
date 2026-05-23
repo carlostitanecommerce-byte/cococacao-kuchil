@@ -6,13 +6,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle } from 'lucide-react';
+import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle, Lock } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import { useCartStore } from '@/stores/cartStore';
 import { useVentaConfig } from '@/components/caja/useVentaConfig';
 import { ConfirmVentaDialog } from '@/components/caja/ConfirmVentaDialog';
 import { useCajaSession } from '@/hooks/useCajaSession';
-import type { VentaSummary, MixedPayment } from '@/components/pos/types';
+import { verificarStock } from '@/hooks/useValidarStock';
+import type { VentaSummary, MixedPayment, CartItem } from '@/components/pos/types';
 
 type MetodoPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
 type TipoConsumo = 'sitio' | 'para_llevar' | 'delivery';
@@ -35,6 +37,7 @@ export function CajaCheckoutPanel() {
   const [propinaEnDigital, setPropinaEnDigital] = useState(false);
   const [mixed, setMixed] = useState<MixedPayment>({ efectivo: 0, tarjeta: 0, transferencia: 0 });
   const [summary, setSummary] = useState<VentaSummary | null>(null);
+  const [incrementing, setIncrementing] = useState<string | null>(null);
 
   const subtotal = useMemo(() => items.reduce((s, i) => s + i.subtotal, 0), [items]);
 
@@ -43,12 +46,12 @@ export function CajaCheckoutPanel() {
     return +(subtotal * (propinaPct / 100)).toFixed(2);
   }, [propinaPct, propinaManual, subtotal]);
 
-  // F2: Comisión bancaria SIEMPRE sobre subtotal de productos cobrados con tarjeta,
-  // nunca sobre propina. En mixto, restamos la propina si está marcada como digital
-  // (asumimos que en ese caso el cajero la metió dentro de mixed.tarjeta).
+  // Comisión bancaria SIEMPRE sobre subtotal de productos cobrados con tarjeta,
+  // nunca sobre propina. En mixto, restamos la propina si el cajero indicó que
+  // está incluida en el monto de tarjeta (propinaEnDigital).
   const tarjetaBaseProductos = (() => {
     if (metodoPago === 'tarjeta') return subtotal;
-    if (metodoPago === 'mixto') {
+    if (metodoPago === 'mixto' && mixed.tarjeta > 0) {
       const propinaEnTarjeta = propinaEnDigital ? propina : 0;
       return Math.max(0, mixed.tarjeta - propinaEnTarjeta);
     }
@@ -61,8 +64,64 @@ export function CajaCheckoutPanel() {
   const sumaMixta = +(mixed.efectivo + mixed.tarjeta + mixed.transferencia).toFixed(2);
   const mixtoValido = metodoPago !== 'mixto' || Math.abs(sumaMixta - total) < 0.01;
 
+  const handleMetodoPagoChange = (v: MetodoPago) => {
+    setMetodoPago(v);
+    // Solo "tarjeta" permite mantener propinaEnDigital implícito; en cualquier
+    // otro método reseteamos para que el cajero lo marque explícitamente si aplica.
+    if (v !== 'tarjeta') setPropinaEnDigital(false);
+  };
+
+  const isReadOnlyLine = (item: CartItem) =>
+    item.tipo_concepto === 'coworking' || !!item.open_account_detalle_id;
+
+  const handleIncrement = async (item: CartItem) => {
+    const key = item.lineId ?? item.producto_id;
+    if (isReadOnlyLine(item)) return;
+    setIncrementing(key);
+    try {
+      const nuevaCantidad = item.cantidad + 1;
+
+      if (item.tipo_concepto === 'producto') {
+        const res = await verificarStock(item.producto_id, nuevaCantidad);
+        if (!res.valido) {
+          toast.error(res.error ?? 'Sin stock suficiente');
+          return;
+        }
+      } else if (item.tipo_concepto === 'paquete' && (item.componentes?.length || item.opciones?.length)) {
+        // Carrito tentativo con la cantidad incrementada para que la RPC valide
+        // expandiendo componentes/opciones del paquete.
+        const tentativos = items.map((i) => {
+          const k = i.lineId ?? i.producto_id;
+          if (k !== key) return i;
+          return { ...i, cantidad: nuevaCantidad, subtotal: nuevaCantidad * i.precio_unitario };
+        });
+        const { data, error } = await supabase.rpc('validar_stock_carrito', {
+          p_items: tentativos as any,
+          p_coworking_session_id: coworkingSessionId ?? null,
+        });
+        if (error) {
+          toast.error('Sin conexión al validar stock. Intenta de nuevo.');
+          return;
+        }
+        const resp = data as unknown as { valido: boolean; error?: string };
+        if (!resp?.valido) {
+          toast.error(resp?.error ?? 'Sin stock suficiente para el paquete');
+          return;
+        }
+      }
+
+      updateQty(key, 1);
+    } finally {
+      setIncrementing(null);
+    }
+  };
+
   const handleCobrar = () => {
     if (items.length === 0) { toast.error('Agrega productos al ticket'); return; }
+    if (!cajaAbierta?.id) {
+      toast.error('La caja se cerró. Reabre una caja para cobrar.');
+      return;
+    }
     if (!mixtoValido) { toast.error(`Pagos mixtos suman $${sumaMixta.toFixed(2)} pero el total es $${total.toFixed(2)}`); return; }
 
     const ventaSummary: VentaSummary = {
@@ -77,7 +136,7 @@ export function CajaCheckoutPanel() {
       mixed_payment: metodoPago === 'mixto' ? mixed : undefined,
       propina_en_digital: propinaEnDigital,
       coworking_session_id: coworkingSessionId ?? undefined,
-      caja_id: cajaAbierta?.id,
+      caja_id: cajaAbierta.id,
     };
     setSummary(ventaSummary);
   };
@@ -88,8 +147,16 @@ export function CajaCheckoutPanel() {
     setTipoConsumo('sitio');
     setPropinaPct(0);
     setPropinaManual('');
+    setPropinaEnDigital(false);
     setMixed({ efectivo: 0, tarjeta: 0, transferencia: 0 });
   };
+
+  const showPropinaDigitalCheckbox =
+    propina > 0 &&
+    (metodoPago === 'tarjeta' ||
+      metodoPago === 'efectivo' ||
+      metodoPago === 'transferencia' ||
+      (metodoPago === 'mixto' && mixed.tarjeta > 0));
 
   return (
     <div className="border border-border rounded-lg bg-card flex flex-col h-full">
@@ -120,21 +187,31 @@ export function CajaCheckoutPanel() {
           </div>
         ) : (
           items.map((item) => {
-            const esCoworking = item.tipo_concepto === 'coworking' || !!item.coworking_session_id;
+            const readOnly = isReadOnlyLine(item);
+            const esCoworkingCharge = item.tipo_concepto === 'coworking';
             const k = item.lineId ?? item.producto_id;
+            const isBusy = incrementing === k;
             return (
               <div key={k} className="flex items-center gap-2 text-sm border border-border rounded-md p-2">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{item.nombre}</p>
-                  <p className="text-xs text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
+                    {readOnly && (
+                      <Badge variant="secondary" className="text-[10px] px-1 h-4 gap-1">
+                        <Lock className="h-2.5 w-2.5" />
+                        {esCoworkingCharge ? 'Coworking' : 'Cuenta abierta'}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
-                {!esCoworking ? (
+                {!readOnly ? (
                   <div className="flex items-center gap-1">
-                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(k, -1)}>
+                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(k, -1)} disabled={isBusy}>
                       <Minus className="h-3 w-3" />
                     </Button>
                     <span className="w-5 text-center text-xs">{item.cantidad}</span>
-                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(k, 1)}>
+                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => handleIncrement(item)} disabled={isBusy}>
                       <Plus className="h-3 w-3" />
                     </Button>
                   </div>
@@ -142,7 +219,7 @@ export function CajaCheckoutPanel() {
                   <span className="text-xs text-muted-foreground px-2">×{item.cantidad}</span>
                 )}
                 <span className="font-bold w-16 text-right">${item.subtotal.toFixed(2)}</span>
-                {!esCoworking && (
+                {!readOnly && (
                   <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem(k)}>
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -170,7 +247,7 @@ export function CajaCheckoutPanel() {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Método de pago</Label>
-              <Select value={metodoPago} onValueChange={(v) => setMetodoPago(v as MetodoPago)}>
+              <Select value={metodoPago} onValueChange={(v) => handleMetodoPagoChange(v as MetodoPago)}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="efectivo">Efectivo</SelectItem>
@@ -238,7 +315,7 @@ export function CajaCheckoutPanel() {
                 className="h-8 text-sm mt-1"
               />
             )}
-            {propina > 0 && metodoPago !== 'mixto' && (
+            {showPropinaDigitalCheckbox && (
               <div className="flex items-center gap-2 mt-1">
                 <Checkbox
                   id="propina-digital"
@@ -246,7 +323,9 @@ export function CajaCheckoutPanel() {
                   onCheckedChange={(v) => setPropinaEnDigital(!!v)}
                 />
                 <Label htmlFor="propina-digital" className="text-xs cursor-pointer">
-                  {metodoPago === 'efectivo'
+                  {metodoPago === 'mixto'
+                    ? 'Propina incluida en el monto de tarjeta'
+                    : metodoPago === 'tarjeta'
                     ? 'Propina cobrada por terminal (tarjeta)'
                     : 'Propina cobrada por método digital'}
                 </Label>
@@ -278,11 +357,17 @@ export function CajaCheckoutPanel() {
             </div>
           </div>
 
+          {!cajaAbierta && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" /> La caja se cerró. Reabre una caja para cobrar.
+            </p>
+          )}
+
           <Button
             size="lg"
             className="w-full"
             onClick={handleCobrar}
-            disabled={!mixtoValido}
+            disabled={!mixtoValido || !cajaAbierta}
           >
             <CreditCard className="mr-2 h-4 w-4" />
             Cobrar ${total.toFixed(2)}
