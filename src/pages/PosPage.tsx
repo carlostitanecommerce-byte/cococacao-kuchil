@@ -247,11 +247,13 @@ const PosPage = () => {
     if (delta > 0) {
       const item = items.find(i => (i.lineId ?? i.producto_id) === lineId);
       if (item && item.tipo_concepto === 'producto') {
-        const validacion = await verificarStock(item.producto_id, 1);
+        const validacion = await verificarStock(item.producto_id, item.cantidad + 1);
         if (!validacion.valido) { toast.error(validacion.error); return; }
       }
       if (item && item.tipo_concepto === 'paquete') {
-        // Validar el carrito completo con la cantidad incrementada del paquete
+        // Validar el carrito completo con la cantidad incrementada del paquete.
+        // Propagamos `opciones` además de `componentes` para que el shape sea idéntico
+        // al usado por handlePaqueteConfirm y la RPC valide por la misma ruta.
         const itemsTentativos = items.map((i) => {
           const isThis = (i.lineId ?? i.producto_id) === lineId;
           return {
@@ -262,6 +264,7 @@ const PosPage = () => {
             componentes: (i as any).componentes,
           };
         });
+
         const { data: validacion, error: valErr } = await supabase.rpc('validar_stock_carrito', {
           p_items: itemsTentativos as any,
         });
