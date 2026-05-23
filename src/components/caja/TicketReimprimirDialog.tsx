@@ -169,8 +169,8 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
               <p className="text-xs text-muted-foreground">{NEGOCIO_DIRECCION}</p>
               {NEGOCIO_RFC && <p className="text-xs text-muted-foreground">RFC: {NEGOCIO_RFC}</p>}
               <p className="text-xs font-bold">Folio: #{String(venta.folio).padStart(4, '0')}</p>
-              <p className="text-xs">{new Date(venta.fecha).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-              <p className="text-xs">{new Date(venta.fecha).toLocaleTimeString('es-MX')}</p>
+              <p className="text-xs">{new Date(venta.fecha).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Mexico_City' })}</p>
+              <p className="text-xs">{new Date(venta.fecha).toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City' })}</p>
               {usuarioNombre && <p className="text-xs">Atendió: {usuarioNombre}</p>}
               <p className="text-[10px] italic text-muted-foreground">** REIMPRESIÓN **</p>
             </div>
