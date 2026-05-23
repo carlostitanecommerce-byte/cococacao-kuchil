@@ -335,9 +335,23 @@ export function CajaCheckoutPanel() {
                   </div>
                 ))}
               </div>
-              {!mixtoValido && (
+              {!sumaMixtaCuadra && (
                 <p className="text-xs text-destructive flex items-center gap-1">
                   <AlertCircle className="h-3 w-3" /> Suma actual: ${sumaMixta.toFixed(2)}
+                </p>
+              )}
+              {sumaMixtaCuadra && !mixtoTarjetaCubrePropina && (
+                <p className="text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  El monto de tarjeta debe cubrir al menos la propina (${propina.toFixed(2)}).
+                </p>
+              )}
+              {propinaEnDigital && propina > 0 && mixed.tarjeta > 0 && mixtoTarjetaCubrePropina && (
+                <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                  <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                  <span>
+                    Se asumen ${propina.toFixed(2)} de propina dentro de tarjeta. La comisión se calcula sobre el resto (${Math.max(0, mixed.tarjeta - propina).toFixed(2)}).
+                  </span>
                 </p>
               )}
             </div>
