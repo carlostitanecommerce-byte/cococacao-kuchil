@@ -364,18 +364,20 @@ const PosPage = () => {
             <ProductGrid onAdd={addProduct} />
           </div>
           <div className="lg:col-span-2 border border-border rounded-lg p-3 bg-card flex flex-col min-h-0">
-            <CartPanel
-              items={items}
-              onUpdateQty={handleUpdateQty}
-              onUpdateNotas={updateNotas}
-              onRemove={removeItem}
-              onClear={clear}
-              subtotal={subtotal}
-              coworkingSessionActive={isOpenAccount}
-              clienteNombre={clienteNombre}
-            />
+            <div className="flex-1 min-h-0 flex flex-col">
+              <CartPanel
+                items={items}
+                onUpdateQty={handleUpdateQty}
+                onUpdateNotas={updateNotas}
+                onRemove={removeItem}
+                onClear={clear}
+                subtotal={subtotal}
+                coworkingSessionActive={isOpenAccount}
+                clienteNombre={clienteNombre}
+              />
+            </div>
             <Button
-              className="mt-3 w-full"
+              className="mt-3 w-full shrink-0"
               size="lg"
               disabled={items.length === 0 || charging}
               onClick={goToCheckout}

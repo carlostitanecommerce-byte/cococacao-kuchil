@@ -81,7 +81,7 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
     return (
       <div
         key={k}
-        className="rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-primary/30"
+        className="shrink-0 rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-primary/30"
       >
         {/* Fila 1: Nombre + subtotal */}
         <div className="flex items-start justify-between gap-2">
@@ -193,7 +193,7 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between mb-2">
+      <div className="shrink-0 flex items-center justify-between mb-2">
         <h2 className="font-heading font-bold text-base flex items-center gap-2">
           <ShoppingCart className="h-4 w-4" /> Ticket
         </h2>
@@ -205,7 +205,7 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
       </div>
 
       {coworkingSessionActive && (
-        <div className="mb-2 rounded-md border border-primary/30 bg-primary/10 p-2 text-sm text-primary">
+        <div className="shrink-0 mb-2 rounded-md border border-primary/30 bg-primary/10 p-2 text-sm text-primary">
           <p className="font-semibold">📌 Cargando a sesión de Coworking</p>
           {clienteNombre && (
             <p className="text-xs opacity-80 truncate">Cliente: {clienteNombre}</p>
@@ -234,13 +234,9 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
         )}
       </div>
 
-      <div className="border-t border-border pt-3 mt-3 space-y-1">
-        <div className="flex justify-between items-center text-sm">
-          <span className="text-muted-foreground">Subtotal:</span>
-          <span>${subtotal.toFixed(2)}</span>
-        </div>
+      <div className="shrink-0 border-t border-border pt-3 mt-3">
         <div className="flex justify-between items-center text-lg font-bold">
-          <span>Total:</span>
+          <span>Subtotal:</span>
           <span className="text-primary">${subtotal.toFixed(2)}</span>
         </div>
       </div>
