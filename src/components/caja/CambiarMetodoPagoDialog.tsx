@@ -95,6 +95,14 @@ export function CambiarMetodoPagoDialog({ venta, cajaEstado, cajaFolio, onClose,
     if (!user) return;
     setLoading(true);
     try {
+      // Snapshot pre-update de comisiones para auditar el delta recalculado por el trigger.
+      const { data: pre } = await supabase
+        .from('ventas')
+        .select('comisiones_bancarias')
+        .eq('id', venta.id)
+        .maybeSingle();
+      const comisionAntes = Number(pre?.comisiones_bancarias ?? 0);
+
       const { error } = await supabase
         .from('ventas')
         .update({
@@ -106,6 +114,15 @@ export function CambiarMetodoPagoDialog({ venta, cajaEstado, cajaFolio, onClose,
         .eq('id', venta.id);
 
       if (error) throw error;
+
+      // Releer comisiones post-update (calculadas por trg_recalc_comisiones_bancarias).
+      const { data: post } = await supabase
+        .from('ventas')
+        .select('comisiones_bancarias')
+        .eq('id', venta.id)
+        .maybeSingle();
+      const comisionDespues = Number(post?.comisiones_bancarias ?? 0);
+      const comisionDelta = +(comisionDespues - comisionAntes).toFixed(2);
 
       const accion = esPostCierre ? 'correccion_post_cierre' : 'cambio_metodo_pago';
       const descripcion = esPostCierre
@@ -122,6 +139,11 @@ export function CambiarMetodoPagoDialog({ venta, cajaEstado, cajaFolio, onClose,
           metodo_nuevo: nuevoMetodo,
           montos_anteriores: { efectivo: venta.monto_efectivo, tarjeta: venta.monto_tarjeta, transferencia: venta.monto_transferencia },
           montos_nuevos: { efectivo: montoEfectivo, tarjeta: montoTarjeta, transferencia: montoTransferencia },
+          comisiones_bancarias: {
+            antes: comisionAntes,
+            despues: comisionDespues,
+            delta: comisionDelta,
+          },
           motivo: motivo.trim(),
           ...(esPostCierre ? {
             tipo_correccion: 'cambio_metodo_pago',
@@ -131,7 +153,11 @@ export function CambiarMetodoPagoDialog({ venta, cajaEstado, cajaFolio, onClose,
         },
       });
 
-      toast.success(esPostCierre ? 'Corrección post-cierre registrada' : 'Método de pago actualizado');
+      const msgBase = esPostCierre ? 'Corrección post-cierre registrada' : 'Método de pago actualizado';
+      const msgDelta = Math.abs(comisionDelta) > 0.001
+        ? ` · Comisión ${comisionDelta > 0 ? '+' : ''}$${comisionDelta.toFixed(2)}`
+        : '';
+      toast.success(msgBase + msgDelta);
       onSuccess();
     } catch (err: any) {
       toast.error(err.message || 'Error al actualizar');
