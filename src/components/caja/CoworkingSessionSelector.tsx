@@ -99,15 +99,17 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Auto-import pending session from coworking checkout redirect
+  // Auto-import pending session from coworking checkout redirect.
+  // Always consume the URL param once loading is done, even if the session
+  // is no longer pending (cobrada/cancelada por otro cajero), para evitar
+  // que el query param quede atascado en la URL.
   useEffect(() => {
-    if (pendingSessionId && !loading && sessions.length > 0) {
-      const session = sessions.find(s => s.id === pendingSessionId);
-      if (session) {
-        handleSelect(session);
-        onPendingConsumed?.();
-      }
+    if (!pendingSessionId || loading) return;
+    const session = sessions.find(s => s.id === pendingSessionId);
+    if (session) {
+      handleSelect(session);
     }
+    onPendingConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSessionId, loading, sessions]);
 
