@@ -206,6 +206,17 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
                   {!isToday && (
                     <Button variant="ghost" size="sm" onClick={() => setSelectedDate(new Date())}>Hoy</Button>
                   )}
+                  {!isToday && (
+                    <Button variant="outline" size="sm" onClick={() => fetchVentas()} className="gap-1.5">
+                      <RefreshCw className="h-3.5 w-3.5" /> Actualizar
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {totalCount > QUERY_LIMIT && (
+                <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                  Mostrando las {QUERY_LIMIT} ventas más recientes de {totalCount} totales en esta fecha. Para análisis completo, consulta el módulo de Reportes.
                 </div>
               )}
 
