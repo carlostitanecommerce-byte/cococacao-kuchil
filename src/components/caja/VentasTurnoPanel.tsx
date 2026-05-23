@@ -69,25 +69,27 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
     // No-admin sin caja abierta: no debería ver historial.
     if (!isAdmin && !cajaAbierta) {
       setVentas([]);
+      setTotalCount(0);
       return;
     }
 
     const { desdeISO, hastaISO } = cdmxDateRange(effectiveDate, effectiveDate);
     let query = supabase
       .from('ventas')
-      .select('id, folio, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id, caja_id')
+      .select('id, folio, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id, caja_id', { count: 'exact' })
       .in('estado', ['completada', 'cancelada'])
       .gte('fecha', desdeISO)
       .lte('fecha', hastaISO)
       .order('fecha', { ascending: false })
-      .limit(200);
+      .limit(QUERY_LIMIT);
 
     if (noAdminLockedToTurno) {
       query = query.eq('caja_id', cajaAbierta!.id);
     }
 
-    const { data } = await query;
+    const { data, count } = await query;
     const rows = (data as VentaTurno[]) ?? [];
+    setTotalCount(count ?? rows.length);
 
     // Para admin: resolver estado/folio de la caja de cada venta (para detectar turnos cerrados).
     if (isAdmin && rows.length > 0) {
