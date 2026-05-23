@@ -100,11 +100,50 @@ export function ProductGrid({ onAdd }: Props) {
     setCategoriaActiva(null);
   };
 
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const activeBadgeRef = useRef<HTMLSpanElement | null>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setCanLeft(scrollLeft > 1);
+    setCanRight(scrollLeft + clientWidth < scrollWidth - 1);
+  }, []);
+
+  useLayoutEffect(() => {
+    updateScrollState();
+  }, [categoriasVisibles, updateScrollState]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', updateScrollState, { passive: true });
+    const ro = new ResizeObserver(updateScrollState);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', updateScrollState);
+      ro.disconnect();
+    };
+  }, [updateScrollState]);
+
+  useEffect(() => {
+    if (categoriaActiva && activeBadgeRef.current) {
+      activeBadgeRef.current.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+    }
+  }, [categoriaActiva]);
+
+  const scrollByAmount = (dir: 1 | -1) => {
+    scrollRef.current?.scrollBy({ left: dir * 200, behavior: 'smooth' });
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Barra sticky: modo + categorías + toggle densidad */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm pb-2 -mt-1 pt-1">
-        <div className="flex items-start gap-2">
+        <div className="flex items-center gap-2">
           <Button
             variant="default"
             size="sm"
@@ -115,17 +154,58 @@ export function ProductGrid({ onAdd }: Props) {
             {modo === 'producto' ? 'Productos' : 'Paquetes'}
             <ArrowLeftRight className="h-3 w-3" />
           </Button>
-          <div className="flex-1 flex flex-wrap gap-1.5">
-            {categoriasVisibles.map(cat => (
-              <Badge
-                key={cat}
-                variant={categoriaActiva === cat ? 'default' : 'outline'}
-                className="cursor-pointer select-none text-xs px-2 py-0.5"
-                onClick={() => setCategoriaActiva(prev => prev === cat ? null : cat)}
-              >
-                {cat}
-              </Badge>
-            ))}
+          <div className="relative flex-1 min-w-0">
+            <div
+              ref={scrollRef}
+              className="flex gap-1.5 overflow-x-auto no-scrollbar scroll-smooth snap-x"
+            >
+              {categoriasVisibles.map(cat => {
+                const active = categoriaActiva === cat;
+                return (
+                  <Badge
+                    key={cat}
+                    asChild
+                    variant={active ? 'default' : 'outline'}
+                    className="cursor-pointer select-none text-xs px-2 py-0.5 shrink-0 whitespace-nowrap snap-start"
+                  >
+                    <span
+                      ref={active ? activeBadgeRef : undefined}
+                      onClick={() => setCategoriaActiva(prev => prev === cat ? null : cat)}
+                    >
+                      {cat}
+                    </span>
+                  </Badge>
+                );
+              })}
+            </div>
+            {canLeft && (
+              <>
+                <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-background to-transparent" />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label="Desplazar categorías a la izquierda"
+                  onClick={() => scrollByAmount(-1)}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-full bg-background border border-border shadow-sm hover:bg-accent"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
+            {canRight && (
+              <>
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent" />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label="Desplazar categorías a la derecha"
+                  onClick={() => scrollByAmount(1)}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-full bg-background border border-border shadow-sm hover:bg-accent"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </div>
           <Button
             variant="outline"
