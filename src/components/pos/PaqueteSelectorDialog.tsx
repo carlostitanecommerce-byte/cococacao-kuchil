@@ -383,12 +383,14 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
               Total ${total.toFixed(2)}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {validating && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button onClick={handleConfirm} disabled={loading || !completo || grupos.length === 0}>
+            <Button onClick={handleConfirm} disabled={loading || !completo || grupos.length === 0 || seleccionInviable}>
               Agregar al ticket
             </Button>
           </div>
+
         </DialogFooter>
       </DialogContent>
     </Dialog>
