@@ -81,7 +81,7 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
     return (
       <div
         key={k}
-        className="rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-primary/30"
+        className="shrink-0 rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-primary/30"
       >
         {/* Fila 1: Nombre + subtotal */}
         <div className="flex items-start justify-between gap-2">
