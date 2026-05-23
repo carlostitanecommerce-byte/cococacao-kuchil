@@ -134,7 +134,18 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   }, [pendingSessionId, loading, sessions]);
 
   const handleSelect = async (session: ActiveSession) => {
+    // Confirmación previa si hay carrito sin guardar y se cambiará de sesión
+    const isSameSession = activeCartSessionId === session.id;
+    if (cartItemCount > 0 && !isSameSession) {
+      setPendingImport(session);
+      return;
+    }
+    await doImport(session);
+  };
+
+  const doImport = async (session: ActiveSession) => {
     const snapshot = session.tarifa_snapshot;
+
 
     if (!snapshot) {
       toast({
