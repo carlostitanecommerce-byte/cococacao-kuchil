@@ -121,11 +121,29 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
   useEffect(() => {
     fetchVentas();
 
-    const channel = supabase
-      .channel('pos-ventas-turno-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' }, () => fetchVentas())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_ventas' }, () => fetchVentas())
-      .subscribe();
+    // Realtime scope:
+    // - No-admin con caja abierta: solo cambios de su caja.
+    // - Admin viendo HOY: suscripción global (puede haber múltiples cajas).
+    // - Admin viendo fechas pasadas: SIN realtime (modo histórico, refresh manual).
+    const viewingToday = format(effectiveDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+
+    if (!isAdmin && !cajaAbierta) return;
+    if (isAdmin && !viewingToday) return; // histórico: sin realtime
+
+    const ventasFilter = noAdminLockedToTurno ? `caja_id=eq.${cajaAbierta!.id}` : undefined;
+
+    const channel = supabase.channel(`pos-ventas-turno-realtime-${noAdminLockedToTurno ? cajaAbierta!.id : 'admin-today'}`);
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'ventas', ...(ventasFilter ? { filter: ventasFilter } : {}) },
+      () => fetchVentas()
+    );
+    // detalle_ventas no tiene caja_id; suscribir global solo para admin-hoy.
+    if (isAdmin) {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_ventas' }, () => fetchVentas());
+    }
+    channel.subscribe();
+
     return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, isAdmin, cajaAbierta?.id]);
