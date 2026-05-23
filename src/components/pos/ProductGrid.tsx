@@ -195,7 +195,7 @@ export function ProductGrid({ onAdd }: Props) {
                   tabIndex={-1}
                   aria-label="Desplazar categorías a la derecha"
                   onClick={() => scrollByAmount(1)}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-full bg-background border border-border shadow-sm hover:bg-accent"
+                  className="hidden lg:flex absolute right-0 top-1/2 -translate-y-1/2 h-6 w-6 items-center justify-center rounded-full bg-background border border-border shadow-sm hover:bg-accent"
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
                 </button>
