@@ -1,70 +1,107 @@
-## Auditoría del flujo actual
+## Diagnóstico end-to-end
 
-**Selección de opciones en `PaqueteSelectorDialog`:** no valida stock. `addOpcion` solo controla la cantidad por grupo; nunca consulta insumos.
+Revisé el flujo real del POS, las llamadas de red, el carrito y la función de base de datos.
 
-**Click en "Agregar al ticket":** `handlePaqueteConfirm` llama `validar_stock_carrito`, pero esa RPC solo lee `producto_id` y `cantidad` de cada ítem. Para un paquete el `producto_id` es el del paquete, que no tiene recetas → los `componentes`/`opciones` se ignoran y la validación pasa siempre. **Bug raíz #1.**
+Hallazgos principales:
 
-**Botón +/− en el ticket sobre un paquete:** mismo bug (usa la misma RPC).
+1. La función `validar_stock_carrito` sí está expandiendo paquetes dinámicos por `componentes` y sí rechaza cuando el consumo acumulado supera el stock.
+2. En el diálogo `PaqueteSelectorDialog`, la validación visual llega de forma asíncrona. Mientras `stockMap` todavía no existe para una opción, el botón queda seleccionable. Eso permite clicks antes de que termine la validación.
+3. Si la llamada RPC falla, el diálogo actualmente trata la opción como viable (`viable: true`). Esto es inseguro: ante error debe bloquear, no permitir.
+4. `addOpcion` no hace una validación final en vivo antes de meter la opción en `seleccion`; solo confía en el estado cacheado `stockMap`, que puede estar desactualizado.
+5. `handleConfirm` cierra el diálogo inmediatamente después de llamar `onConfirm`, aunque `onConfirm` en `PosPage` vuelve a validar de forma async. Si esa validación falla, el diálogo ya se cerró y la experiencia queda confusa.
+6. La función de validación no marca como error un producto que requiere preparación pero no tiene receta; en esos casos no hay forma real de validar ni descontar insumos, así que debe bloquearse profesionalmente.
 
-**Procesamiento de la venta (`ConfirmVentaDialog` + `procesar_venta_atomica`):** los paquetes sí se expanden en filas `detalle_ventas` con `tipo_concepto='producto'` y `producto_id` de cada componente. El trigger `descontar_inventario_venta` descuenta correctamente cada insumo. Es decir, **el descuento al cerrar venta sí funciona**, pero como se permitió llegar hasta ahí con stock insuficiente, la venta revienta con EXCEPTION en el último paso (mala UX).
+## Plan de arreglo
 
-## Objetivo
+### 1. Hacer la validación del diálogo fail-closed
 
-1. Bloquear desde el diálogo del paquete las opciones cuyo producto no tiene stock suficiente (visible + clic deshabilitado).
-2. Bloquear el "Agregar al ticket" si la combinación seleccionada deja insumos negativos considerando el carrito existente.
-3. Mantener (verificado) el descuento correcto de insumos al procesar la venta.
+En `PaqueteSelectorDialog.tsx`:
 
-## Cambios
+- Inicializar opciones como no seleccionables mientras se valida el stock inicial.
+- Cambiar el comportamiento ante error de RPC: si no se puede validar, la opción se bloquea con mensaje de error en lugar de permitirse.
+- Deshabilitar botones cuando `validating` esté activo y todavía no haya resultado confiable para esa opción.
 
-### 1. Migración — arreglar `validar_stock_carrito` para expandir paquetes
+Resultado esperado: ningún producto se puede seleccionar “por carrera” antes de que termine la validación.
 
-Reescribir la función para que, además de mirar `producto_id` de cada ítem, cuando `tipo_concepto='paquete'` itere sobre el array `componentes` del JSON y sume `receta.cantidad_necesaria × componente.cantidad × item.cantidad` por insumo. Así el RPC actúa como única fuente de verdad y sirve tanto en POS como en cualquier validación futura.
+### 2. Validación final antes de cada selección
 
-Pseudo-comportamiento:
+En `addOpcion`:
+
+- Convertirlo a función async.
+- Antes de actualizar `seleccion`, construir el carrito tentativo exacto:
+
 ```text
-para cada item del carrito:
-  si tipo_concepto = 'producto':
-    sumar recetas(producto_id) × item.cantidad
-  si tipo_concepto = 'paquete':
-    para cada componente en item.componentes:
-      sumar recetas(componente.producto_id) × componente.cantidad × item.cantidad
-después: comparar uso_acumulado vs (stock_actual − uso_comprometido_coworking)
+carrito actual + paquete actual + opción candidata
 ```
 
-Mantiene la misma firma y el mismo formato de retorno (`{valido, error}`), por lo que **no hay cambios en el frontend** salvo aprovecharlo.
+- Ejecutar `validar_stock_carrito` en ese momento.
+- Si falla, mostrar el motivo y no agregar la opción.
+- Si pasa, actualizar `seleccion`.
+- Agregar estado de bloqueo por opción para evitar doble click concurrente.
 
-### 2. `PaqueteSelectorDialog.tsx` — validación por opción en tiempo real
+Resultado esperado: aunque el estado visual se haya quedado viejo, la selección queda protegida por una validación inmediata y autoritativa.
 
-- Al abrir el diálogo, obtener el carrito actual del `cartStore`.
-- Tras cada cambio en `seleccion`, ejecutar `validar_stock_carrito` con `componentes tentativos = seleccion_actual + 1 unidad de la opción candidata` para cada opción de cada grupo. Hacerlo con `useEffect` debounced (~150 ms) y un solo `Promise.all` que devuelva el set de `opcion.id` no viables.
-- Render: una opción no viable se muestra:
-  - botón `disabled`
-  - badge pequeño `Sin stock` (rojo, `text-destructive`, `border-destructive/40`)
-  - tooltip explicativo opcional con el insumo faltante (el RPC ya devuelve el motivo; cachear el último error por producto_id).
-- Si el usuario ya tenía una opción seleccionada que se vuelve inviable (por un cambio en otra parte), se mantiene tachada pero con badge "Sin stock"; "Agregar al ticket" se deshabilita.
-- Botón "Agregar al ticket" queda deshabilitado adicionalmente si alguna opción seleccionada es inviable.
+### 3. Corregir el cierre del diálogo
 
-### 3. `PosPage.tsx`
+Cambiar el contrato de `onConfirm` para que pueda ser async y devolver éxito/error.
 
-- `handlePaqueteConfirm` ya llama a `validar_stock_carrito`. Con la RPC corregida (paso 1) esa llamada ahora sí valida componentes — sin cambios de código.
-- `handleUpdateQty` para paquetes idem: misma RPC, ahora correcta.
+En `PaqueteSelectorDialog.tsx`:
 
-### 4. Auditoría de descuento al procesar venta (sin cambios de código)
+- `handleConfirm` esperará a que `onConfirm` termine.
+- El diálogo solo se cerrará si el paquete realmente se agregó al ticket.
+- Si falta stock, se mantiene abierto y muestra el error.
 
-Confirmado: `ConfirmVentaDialog.tsx` (líneas ~145-200) expande cada paquete en N filas `detalle_ventas` de `tipo_concepto='producto'` con el `producto_id` real del componente. El trigger `descontar_inventario_venta` (última versión en `20260522015236_*.sql`) descuenta cada receta. **No requiere migración adicional.** Solo se añade un comentario aclaratorio al RPC corregido para futura referencia.
+En `PosPage.tsx`:
 
-## Validación
+- `handlePaqueteConfirm` devolverá `true` si agregó el paquete, `false` si no.
 
-1. Crear/usar un paquete cuyo componente "Capuchino" use 200 ml de leche; bajar el stock de leche para que solo alcance para 1 capuchino.
-2. Abrir el paquete en POS: el botón "Capuchino" aparece deshabilitado con badge "Sin stock" en cuanto ya hay 1 capuchino en el carrito o ya elegido en otro grupo.
-3. Intentar agregar igual con stock insuficiente vía manipulación → "Agregar al ticket" queda deshabilitado y `validar_stock_carrito` lo rechaza.
-4. Procesar una venta normal con paquetes mixtos → los insumos de cada componente se descuentan exactamente (consultar `insumos.stock_actual` antes/después).
-5. En cuenta de coworking abierta (consumo comprometido), las opciones que rebasen el stock disponible aparecen como "Sin stock" porque la RPC ya descuenta el `uso_comprometido` de detalles `venta_id IS NULL`.
+Resultado esperado: no habrá cierre engañoso del modal cuando la validación final rechace el paquete.
 
-## Qué NO cambia
+### 4. Endurecer la función de base de datos
 
-- `validar_stock_disponible` (productos sueltos).
-- `validar_stock_paquete` (gating inicial al hacer clic en el paquete).
-- `descontar_inventario_venta` y `procesar_venta_atomica`.
-- Lógica de KDS, coworking, propinas, prorrateo de precios en `ConfirmVentaDialog`.
-- Estructura del carrito ni de `detalle_ventas`.
+Actualizar `validar_stock_carrito` para que también bloquee productos que:
+
+- estén inactivos,
+- requieran preparación,
+- y no tengan receta configurada.
+
+Esto aplica tanto a productos individuales como a componentes dentro de paquetes.
+
+Mensaje esperado:
+
+```text
+El producto "X" no tiene receta configurada; no se puede validar ni descontar inventario.
+```
+
+Resultado esperado: no se puede vender ni seleccionar dentro de paquete un producto que no pueda descontar inventario correctamente.
+
+### 5. Validar acumulado correctamente
+
+Mantener la validación acumulada contra:
+
+- productos ya en el ticket,
+- paquetes ya en el ticket,
+- opciones ya elegidas en el diálogo,
+- la opción candidata,
+- consumo comprometido en cuentas abiertas de coworking.
+
+Resultado esperado: si hay stock para 2 unidades y ya hay 2 comprometidas entre ticket/paquete/coworking, la tercera queda bloqueada.
+
+### 6. Pruebas de verificación
+
+Después de implementar:
+
+- Probar RPC directamente con cantidades que excedan stock para confirmar rechazo.
+- Probar una opción con stock suficiente: debe permitir selección.
+- Probar una opción sin stock suficiente: debe aparecer bloqueada y no debe poder seleccionarse.
+- Probar doble click rápido: no debe colarse la opción.
+- Probar “Agregar al ticket” con selección inválida: no debe cerrar el diálogo ni agregar al ticket.
+- Confirmar que el procesamiento de venta sigue descontando los insumos desde las recetas de los componentes del paquete.
+
+## Archivos a tocar
+
+- `src/components/pos/PaqueteSelectorDialog.tsx`
+- `src/pages/PosPage.tsx`
+- nueva migración para reforzar `validar_stock_carrito`
+
+No voy a cambiar diseño general ni estructura del POS; solo la lógica de validación y la protección del flujo.
