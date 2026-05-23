@@ -207,7 +207,7 @@ export function CajaCheckoutPanel() {
           <ShoppingCart className="h-5 w-5" /> Ticket activo
         </h2>
         {items.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={clear} className="text-destructive hover:text-destructive">
+          <Button variant="ghost" size="sm" onClick={handleLimpiarClick} className="text-destructive hover:text-destructive">
             Limpiar
           </Button>
         )}
