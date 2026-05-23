@@ -4,12 +4,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Search, Users, Clock, Plus, Ban } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Search, Users, Clock, Plus, Ban, Wallet } from 'lucide-react';
 import type { CartItem } from '@/components/pos/types';
 import { CancelSessionDialog } from '@/components/coworking/CancelSessionDialog';
 import type { CoworkingSession, TarifaSnapshot } from '@/components/coworking/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { useCartStore } from '@/stores/cartStore';
 
 interface ActiveSession {
   id: string;
