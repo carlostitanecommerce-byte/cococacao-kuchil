@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from '@/components/ui/label';
 import { CheckCircle2, XCircle, Bell, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ejecutarCancelacionVenta } from '@/lib/cancelacionVentaUtils';
 
 interface Solicitud {
   id: string;
@@ -85,35 +86,45 @@ export function SolicitudesCancelacionPanel() {
     if (!user) return;
     setProcessing(true);
     try {
-      // 1. Cancel the venta
-      const { error: ventaErr } = await supabase.from('ventas').update({
-        estado: 'cancelada' as any,
-        motivo_cancelacion: solicitud.motivo,
-      }).eq('id', solicitud.venta_id);
-      if (ventaErr) throw ventaErr;
+      // 1. Obtener datos completos de la venta (coworking + caja para detectar post-cierre)
+      const { data: ventaData, error: ventaFetchErr } = await supabase
+        .from('ventas')
+        .select('id, total_neto, coworking_session_id, caja_id')
+        .eq('id', solicitud.venta_id)
+        .single();
+      if (ventaFetchErr || !ventaData) throw ventaFetchErr || new Error('Venta no encontrada');
 
-      // 2. Update solicitud
+      let postCierre = false;
+      let cajaFolio: number | null = null;
+      if (ventaData.caja_id) {
+        const { data: cajaData } = await supabase
+          .from('cajas')
+          .select('estado, folio')
+          .eq('id', ventaData.caja_id)
+          .maybeSingle();
+        postCierre = cajaData?.estado === 'cerrada';
+        cajaFolio = cajaData?.folio ?? null;
+      }
+
+      // 2. Ejecutar cancelación orquestada
+      await ejecutarCancelacionVenta({
+        ventaId: solicitud.venta_id,
+        total: ventaData.total_neto,
+        motivo: solicitud.motivo,
+        coworkingSessionId: ventaData.coworking_session_id ?? null,
+        userId: user.id,
+        actorNombre: profile?.nombre,
+        postCierre,
+        cajaFolio,
+        solicitudId: solicitud.id,
+        accionOverride: 'aprobar_cancelacion',
+      });
+
+      // 3. Marcar solicitud como aprobada
       await supabase.from('solicitudes_cancelacion' as any).update({
         estado: 'aprobada',
         revisado_por: user.id,
       }).eq('id', solicitud.id);
-
-      // 3. Check if venta had coworking session and revert
-      const { data: ventaData } = await supabase.from('ventas').select('coworking_session_id').eq('id', solicitud.venta_id).single();
-      if (ventaData?.coworking_session_id) {
-        await supabase.from('coworking_sessions').update({
-          estado: 'pendiente_pago' as any,
-          fecha_salida_real: null,
-        }).eq('id', ventaData.coworking_session_id);
-      }
-
-      // 4. Audit log
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        accion: 'aprobar_cancelacion',
-        descripcion: `Cancelación aprobada por ${profile?.nombre ?? 'Admin'} para venta $${solicitud.venta_total?.toFixed(2)}. Solicitante: ${solicitud.solicitante_nombre}`,
-        metadata: { solicitud_id: solicitud.id, venta_id: solicitud.venta_id },
-      });
 
       toast.success('Cancelación aprobada');
       fetchSolicitudes();

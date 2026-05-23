@@ -7,6 +7,7 @@ import { Loader2, AlertTriangle, Send, Lock } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { ejecutarCancelacionVenta } from '@/lib/cancelacionVentaUtils';
 
 interface VentaBasic {
   id: string;
@@ -48,44 +49,27 @@ export function CancelVentaDialog({ venta, isAdmin, cajaEstado, cajaFolio, onClo
     if (!user || !motivoValido) return;
     setLoading(true);
     try {
-      // 1. Update venta
-      const { error } = await supabase.from('ventas').update({
-        estado: 'cancelada' as any,
-        motivo_cancelacion: motivo.trim(),
-      }).eq('id', venta.id);
-      if (error) throw error;
-
-      // 2. Revert coworking session if linked
-      if (venta.coworking_session_id) {
-        await supabase.from('coworking_sessions').update({
-          estado: 'pendiente_pago' as any,
-          fecha_salida_real: null,
-        }).eq('id', venta.coworking_session_id);
-      }
-
-      // 3. Audit log — diferenciado si es corrección post-cierre
-      const accion = esPostCierre ? 'correccion_post_cierre' : 'cancelar_venta';
-      const descripcion = esPostCierre
-        ? `Corrección post-cierre: cancelación de venta $${venta.total_neto.toFixed(2)} (turno cerrado${cajaFolio ? ` #${String(cajaFolio).padStart(4, '0')}` : ''}) por ${profile?.nombre ?? 'Admin'}. Motivo: ${motivo.trim()}`
-        : `Venta $${venta.total_neto.toFixed(2)} cancelada por ${profile?.nombre ?? 'Admin'}. Motivo: ${motivo.trim()}`;
-
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        accion,
-        descripcion,
-        metadata: {
-          venta_id: venta.id,
-          total: venta.total_neto,
-          motivo: motivo.trim(),
-          ...(esPostCierre ? {
-            tipo_correccion: 'cancelacion',
-            caja_folio: cajaFolio,
-            caja_estado_al_momento: 'cerrada',
-          } : {}),
-        },
+      const res = await ejecutarCancelacionVenta({
+        ventaId: venta.id,
+        total: venta.total_neto,
+        motivo: motivo.trim(),
+        coworkingSessionId: venta.coworking_session_id,
+        userId: user.id,
+        actorNombre: profile?.nombre,
+        postCierre: esPostCierre,
+        cajaFolio: cajaFolio ?? null,
       });
 
-      toast.success(esPostCierre ? 'Corrección post-cierre registrada' : 'Venta cancelada exitosamente');
+      const detalles: string[] = [];
+      if (res.lineasOpenAccountReabiertas > 0) detalles.push(`${res.lineasOpenAccountReabiertas} consumos reabiertos`);
+      if (res.stockRevertido) detalles.push('stock restituido');
+      if (res.kdsCanceladas > 0) detalles.push(`${res.kdsCanceladas} órdenes de cocina canceladas`);
+      if (res.coworkingRevertida) detalles.push('sesión coworking reactivada');
+
+      toast.success(
+        esPostCierre ? 'Corrección post-cierre registrada' : 'Venta cancelada exitosamente',
+        detalles.length > 0 ? { description: detalles.join(' · ') } : undefined,
+      );
       setMotivo('');
       onSuccess();
     } catch (err: any) {
