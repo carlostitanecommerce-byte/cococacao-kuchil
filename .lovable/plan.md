@@ -1,107 +1,89 @@
-## Diagnóstico end-to-end
+# Plan: Endurecimiento de validación de stock y errores en POS
 
-Revisé el flujo real del POS, las llamadas de red, el carrito y la función de base de datos.
+Alcance acotado a los puntos 4, 6, 7, 9 y 10 de la auditoría. No se tocan diseño ni flujos no relacionados.
 
-Hallazgos principales:
+---
 
-1. La función `validar_stock_carrito` sí está expandiendo paquetes dinámicos por `componentes` y sí rechaza cuando el consumo acumulado supera el stock.
-2. En el diálogo `PaqueteSelectorDialog`, la validación visual llega de forma asíncrona. Mientras `stockMap` todavía no existe para una opción, el botón queda seleccionable. Eso permite clicks antes de que termine la validación.
-3. Si la llamada RPC falla, el diálogo actualmente trata la opción como viable (`viable: true`). Esto es inseguro: ante error debe bloquear, no permitir.
-4. `addOpcion` no hace una validación final en vivo antes de meter la opción en `seleccion`; solo confía en el estado cacheado `stockMap`, que puede estar desactualizado.
-5. `handleConfirm` cierra el diálogo inmediatamente después de llamar `onConfirm`, aunque `onConfirm` en `PosPage` vuelve a validar de forma async. Si esa validación falla, el diálogo ya se cerró y la experiencia queda confusa.
-6. La función de validación no marca como error un producto que requiere preparación pero no tiene receta; en esos casos no hay forma real de validar ni descontar insumos, así que debe bloquearse profesionalmente.
+## 4. Consistencia en `handleUpdateQty` para paquetes dinámicos
 
-## Plan de arreglo
+**Problema:** al incrementar cantidad de un paquete dinámico desde el carrito, el item tentativo se arma con `componentes` pero sin `opciones`, mientras que `handlePaqueteConfirm` sí envía `opciones`. La RPC `validar_stock_carrito` recibe formas distintas según el origen.
 
-### 1. Hacer la validación del diálogo fail-closed
+**Cambio en `src/pages/PosPage.tsx` → `handleUpdateQty`:**
+- Al construir `itemsTentativos` para un paquete, propagar también `opciones` desde el item del carrito (igual que ya se hace con `componentes`).
+- Mantener el shape idéntico al usado en `handlePaqueteConfirm` para que la RPC valide por la misma ruta (expansión por componentes con multiplicador de cantidad).
+- No cambia la firma de la RPC; solo se uniforma el payload del cliente.
 
-En `PaqueteSelectorDialog.tsx`:
+---
 
-- Inicializar opciones como no seleccionables mientras se valida el stock inicial.
-- Cambiar el comportamiento ante error de RPC: si no se puede validar, la opción se bloquea con mensaje de error en lugar de permitirse.
-- Deshabilitar botones cuando `validating` esté activo y todavía no haya resultado confiable para esa opción.
+## 6. Debounce de re-validación en `PaqueteSelectorDialog`
 
-Resultado esperado: ningún producto se puede seleccionar “por carrera” antes de que termine la validación.
+**Problema:** el efecto que re-valida todas las opciones se dispara en cada cambio de `cartItems` / `seleccion`, generando ráfagas de RPC innecesarias.
 
-### 2. Validación final antes de cada selección
+**Cambio en `src/components/pos/PaqueteSelectorDialog.tsx`:**
+- Envolver la re-validación masiva en un debounce de ~250 ms usando `setTimeout` + cleanup en el `useEffect`.
+- Conservar fail-closed: mientras el debounce está pendiente, no se habilitan opciones cuyo `stockMap` haya quedado marcado como inválido en la pasada anterior.
+- La validación final autoritativa dentro de `addOpcion` no se debouncea; sigue ejecutándose inmediata para garantizar la decisión correcta al click.
+- Cancelar el timer al cerrar el diálogo o desmontar.
 
-En `addOpcion`:
+---
 
-- Convertirlo a función async.
-- Antes de actualizar `seleccion`, construir el carrito tentativo exacto:
+## 7. Validación de stock en `registrar_consumo_coworking`
 
-```text
-carrito actual + paquete actual + opción candidata
-```
+**Problema:** la RPC inserta consumos en la cuenta abierta sin revalidar stock; el cliente es la única defensa.
 
-- Ejecutar `validar_stock_carrito` en ese momento.
-- Si falla, mostrar el motivo y no agregar la opción.
-- Si pasa, actualizar `seleccion`.
-- Agregar estado de bloqueo por opción para evitar doble click concurrente.
+**Cambio vía migración (nueva):**
+- Modificar `registrar_consumo_coworking` para que, antes de insertar:
+  1. Construya un arreglo equivalente al de `validar_stock_carrito` a partir de `p_items` (productos sueltos y paquetes con sus `componentes`).
+  2. Sume al cálculo el consumo ya comprometido en otras cuentas abiertas activas para no permitir doble venta del mismo stock.
+  3. Llame internamente a la misma lógica de validación (o se factoriza una función `_validar_stock_items(jsonb)` reutilizable por ambas RPCs para evitar drift).
+- Si la validación falla, `RAISE EXCEPTION` con el mensaje legible (nombre del producto) y abortar la inserción dentro de la misma transacción.
+- Mantener bloqueo a productos inactivos / sin receta cuando `requiere_preparacion = true`, igual que el endurecimiento ya hecho en `validar_stock_carrito`.
 
-Resultado esperado: aunque el estado visual se haya quedado viejo, la selección queda protegida por una validación inmediata y autoritativa.
+---
 
-### 3. Corregir el cierre del diálogo
+## 9. Manejo de fallos de red en `addProduct`
 
-Cambiar el contrato de `onConfirm` para que pueda ser async y devolver éxito/error.
+**Problema:** ante error de RPC, el carrito muestra un toast genérico ("Error de conexión") sin distinguir red de stock insuficiente, y sin reintento.
 
-En `PaqueteSelectorDialog.tsx`:
+**Cambios en `src/pages/PosPage.tsx` (`addProduct`) y en `src/hooks/useValidarStock.ts`:**
+- En `verificarStock` y en las llamadas RPC (`validar_stock_paquete`, `validar_stock_carrito`):
+  - Diferenciar `error` de PostgREST (red/HTTP) de `{valido: false, error}` (regla de negocio).
+  - Para errores de red: toast con mensaje específico ("Sin conexión con el servidor, intenta de nuevo") y NO agregar al carrito.
+  - Para errores de negocio: conservar el mensaje detallado actual.
+- Agregar un único reintento automático con backoff corto (≈400 ms) ante error de red transitorio antes de mostrar el toast.
+- Liberar siempre `addingLockRef` en `finally` (ya está) y asegurar que el lock no se quede colgado si el reintento también falla.
 
-- `handleConfirm` esperará a que `onConfirm` termine.
-- El diálogo solo se cerrará si el paquete realmente se agregó al ticket.
-- Si falta stock, se mantiene abierto y muestra el error.
+---
 
-En `PosPage.tsx`:
+## 10. Cierre del cobro: protección contra carrera de inventario
 
-- `handlePaqueteConfirm` devolverá `true` si agregó el paquete, `false` si no.
+**Problema:** entre la validación en POS y el `INSERT` de la venta en `/caja`, otra terminal puede consumir el stock.
 
-Resultado esperado: no habrá cierre engañoso del modal cuando la validación final rechace el paquete.
+**Cambios:**
 
-### 4. Endurecer la función de base de datos
+### 10.a Migración: revalidación atómica dentro de `descontar_inventario_venta`
+- Antes de descontar, ejecutar dentro de la misma transacción una re-verificación equivalente a `validar_stock_carrito` sobre los items reales de la venta (incluyendo expansión de paquetes por `componentes` y sus recetas).
+- Tomar `SELECT ... FOR UPDATE` sobre las filas de `insumos` involucradas para serializar el acceso entre terminales concurrentes.
+- Si la validación falla en este punto: `RAISE EXCEPTION` con el insumo/producto faltante. La venta no se confirma.
 
-Actualizar `validar_stock_carrito` para que también bloquee productos que:
+### 10.b Cliente
+- En `src/pages/CajaPage.tsx` / `CajaCheckoutPanel.tsx` (donde se invoca el cierre): capturar la excepción de la RPC y mostrar un toast accionable ("Stock insuficiente al confirmar — revisa el ticket"), sin marcar la venta como completada y sin limpiar el carrito.
+- No se elimina la validación previa en POS; sigue siendo la primera línea de defensa para UX.
 
-- estén inactivos,
-- requieran preparación,
-- y no tengan receta configurada.
-
-Esto aplica tanto a productos individuales como a componentes dentro de paquetes.
-
-Mensaje esperado:
-
-```text
-El producto "X" no tiene receta configurada; no se puede validar ni descontar inventario.
-```
-
-Resultado esperado: no se puede vender ni seleccionar dentro de paquete un producto que no pueda descontar inventario correctamente.
-
-### 5. Validar acumulado correctamente
-
-Mantener la validación acumulada contra:
-
-- productos ya en el ticket,
-- paquetes ya en el ticket,
-- opciones ya elegidas en el diálogo,
-- la opción candidata,
-- consumo comprometido en cuentas abiertas de coworking.
-
-Resultado esperado: si hay stock para 2 unidades y ya hay 2 comprometidas entre ticket/paquete/coworking, la tercera queda bloqueada.
-
-### 6. Pruebas de verificación
-
-Después de implementar:
-
-- Probar RPC directamente con cantidades que excedan stock para confirmar rechazo.
-- Probar una opción con stock suficiente: debe permitir selección.
-- Probar una opción sin stock suficiente: debe aparecer bloqueada y no debe poder seleccionarse.
-- Probar doble click rápido: no debe colarse la opción.
-- Probar “Agregar al ticket” con selección inválida: no debe cerrar el diálogo ni agregar al ticket.
-- Confirmar que el procesamiento de venta sigue descontando los insumos desde las recetas de los componentes del paquete.
+---
 
 ## Archivos a tocar
 
-- `src/components/pos/PaqueteSelectorDialog.tsx`
-- `src/pages/PosPage.tsx`
-- nueva migración para reforzar `validar_stock_carrito`
+- `src/pages/PosPage.tsx` (items 4 y 9)
+- `src/components/pos/PaqueteSelectorDialog.tsx` (item 6)
+- `src/hooks/useValidarStock.ts` (item 9)
+- `src/pages/CajaPage.tsx` y/o `src/components/caja/CajaCheckoutPanel.tsx` (item 10.b)
+- Nueva migración: refactor de `validar_stock_carrito` a función reutilizable + endurecer `registrar_consumo_coworking` (item 7) y `descontar_inventario_venta` con `FOR UPDATE` (item 10.a)
 
-No voy a cambiar diseño general ni estructura del POS; solo la lógica de validación y la protección del flujo.
+## Verificación
+
+- 4: incrementar paquete dinámico desde el carrito hasta agotar stock de un componente → debe bloquear.
+- 6: abrir diálogo de paquete con carrito grande → en Network solo se ve una ráfaga de validaciones por cambio, no por cada render.
+- 7: dos cuentas de coworking abiertas cargando el mismo último producto → la segunda debe fallar con mensaje legible.
+- 9: simular offline → toast de red, sin agregar al carrito, sin lock colgado.
+- 10: dos terminales cobrando simultáneamente el último producto → solo una venta se confirma; la otra recibe excepción clara.

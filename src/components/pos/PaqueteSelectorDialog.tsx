@@ -162,35 +162,39 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
     ];
   };
 
-  // Recalcular viabilidad de cada opción (fail-closed)
+  // Recalcular viabilidad de cada opción (fail-closed) con debounce para evitar
+  // ráfagas de RPC ante cambios consecutivos en seleccion/cartItems.
   useEffect(() => {
     if (!open || !paquete || candidateProductIds.length === 0) {
       setStockMap({});
       return;
     }
-    const seq = ++validateSeqRef.current;
     setValidating(true);
-
-    (async () => {
-      const results = await Promise.all(
-        candidateProductIds.map(async (pid) => {
-          const items = buildTentative(pid);
-          const { data, error } = await supabase.rpc('validar_stock_carrito', { p_items: items as any });
-          if (error) {
-            return [pid, { viable: false, motivo: 'No se pudo validar stock. Intenta de nuevo.' }] as const;
-          }
-          const r = data as unknown as { valido: boolean; error?: string };
-          return [pid, { viable: !!r?.valido, motivo: r?.error }] as const;
-        })
-      );
-      if (seq !== validateSeqRef.current) return;
-      const next: Record<string, StockState> = {};
-      for (const [pid, v] of results) next[pid] = v;
-      setStockMap(next);
-      setValidating(false);
-    })();
+    const timer = setTimeout(() => {
+      const seq = ++validateSeqRef.current;
+      (async () => {
+        const results = await Promise.all(
+          candidateProductIds.map(async (pid) => {
+            const items = buildTentative(pid);
+            const { data, error } = await supabase.rpc('validar_stock_carrito', { p_items: items as any });
+            if (error) {
+              return [pid, { viable: false, motivo: 'No se pudo validar stock. Intenta de nuevo.' }] as const;
+            }
+            const r = data as unknown as { valido: boolean; error?: string };
+            return [pid, { viable: !!r?.valido, motivo: r?.error }] as const;
+          })
+        );
+        if (seq !== validateSeqRef.current) return;
+        const next: Record<string, StockState> = {};
+        for (const [pid, v] of results) next[pid] = v;
+        setStockMap(next);
+        setValidating(false);
+      })();
+    }, 250);
+    return () => { clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, paquete, grupos, seleccion, cartItems, candidateProductIds]);
+
 
   const seleccionInviable = useMemo(() => {
     for (const g of grupos) {
