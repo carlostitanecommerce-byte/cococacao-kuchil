@@ -319,31 +319,52 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
                         <p className="text-xs text-muted-foreground italic col-span-full">
                           Sin opciones disponibles
                         </p>
-                      ) : g.opciones.map(op => (
-                        <button
-                          key={op.id}
-                          type="button"
-                          disabled={completo}
-                          onClick={() => addOpcion(g, op)}
-                          className={cn(
-                            'flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-left transition',
-                            'hover:border-primary hover:bg-primary/5 active:scale-[0.98]',
-                            'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:bg-card'
-                          )}
-                        >
-                          <span className="text-sm font-medium leading-tight truncate">
-                            {op.nombre_producto}
-                          </span>
-                          <span className="flex items-center gap-1 shrink-0">
-                            {op.precio_adicional > 0 && (
-                              <span className="text-xs font-semibold text-primary tabular-nums">
-                                +${op.precio_adicional.toFixed(2)}
-                              </span>
+                      ) : g.opciones.map(op => {
+                        const stockInfo = stockMap[op.producto_id];
+                        const sinStock = stockInfo?.viable === false;
+                        const disabled = completo || sinStock;
+                        return (
+                          <button
+                            key={op.id}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => addOpcion(g, op)}
+                            title={sinStock ? (stockInfo?.motivo || 'Stock insuficiente') : undefined}
+                            className={cn(
+                              'flex items-center justify-between gap-2 rounded-md border bg-card px-3 py-2 text-left transition',
+                              sinStock
+                                ? 'border-destructive/40 bg-destructive/5'
+                                : 'border-border hover:border-primary hover:bg-primary/5 active:scale-[0.98]',
+                              'disabled:cursor-not-allowed',
+                              completo && !sinStock && 'disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-card'
                             )}
-                            <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-                          </span>
-                        </button>
-                      ))}
+                          >
+                            <span className={cn(
+                              'text-sm font-medium leading-tight truncate',
+                              sinStock && 'text-muted-foreground line-through'
+                            )}>
+                              {op.nombre_producto}
+                            </span>
+                            <span className="flex items-center gap-1 shrink-0">
+                              {sinStock ? (
+                                <Badge variant="outline" className="text-[10px] h-5 border-destructive/40 text-destructive gap-1">
+                                  <AlertTriangle className="h-3 w-3" /> Sin stock
+                                </Badge>
+                              ) : (
+                                <>
+                                  {op.precio_adicional > 0 && (
+                                    <span className="text-xs font-semibold text-primary tabular-nums">
+                                      +${op.precio_adicional.toFixed(2)}
+                                    </span>
+                                  )}
+                                  <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                                </>
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+
                     </div>
                   </Card>
                 );
