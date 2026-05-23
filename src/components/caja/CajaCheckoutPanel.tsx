@@ -220,6 +220,23 @@ export function CajaCheckoutPanel() {
         </div>
       )}
 
+      {openAccountCount > 0 && (
+        <TooltipProvider>
+          <div className="px-4 py-1.5 bg-muted/40 border-b border-border text-[11px] text-muted-foreground flex items-center gap-1.5">
+            <Lock className="h-3 w-3" />
+            <span>{openAccountCount} línea{openAccountCount !== 1 ? 's' : ''} de cuenta abierta (no editables aquí)</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="inline-flex"><Info className="h-3 w-3" /></button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                Para modificar cantidades o eliminar consumos de la cuenta abierta usa Coworking → Administrar cuenta. Aquí solo se cobran.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
+      )}
+
       <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0 max-h-[40vh]">
         {items.length === 0 ? (
           <div className="text-center py-10 text-muted-foreground text-sm">
@@ -234,7 +251,8 @@ export function CajaCheckoutPanel() {
             const k = item.lineId ?? item.producto_id;
             const isBusy = incrementing === k;
             return (
-              <div key={k} className="flex items-center gap-2 text-sm border border-border rounded-md p-2">
+              <div key={k} className={`flex items-center gap-2 text-sm border border-border rounded-md p-2 ${readOnly ? 'bg-muted/30' : ''}`}>
+
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{item.nombre}</p>
                   <div className="flex items-center gap-2">
