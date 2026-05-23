@@ -55,10 +55,18 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   const { roles } = useAuth();
   const { toast } = useToast();
   const isAdmin = roles.includes('administrador');
+  const puedeCancelar =
+    roles.includes('administrador') ||
+    roles.includes('supervisor') ||
+    roles.includes('caja');
+  const cartItemCount = useCartStore((s) => s.items.length);
+  const activeCartSessionId = useCartStore((s) => s.coworkingSessionId);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
+  const [pendingImport, setPendingImport] = useState<ActiveSession | null>(null);
+
 
   const fetchSessions = async () => {
     try {
