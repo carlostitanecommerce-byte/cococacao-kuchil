@@ -34,6 +34,7 @@ interface ActiveSession {
   es_privado: boolean;
   tarifa_id: string | null;
   tarifa_snapshot: TarifaSnapshot | null;
+  monto_acumulado: number;
 }
 
 interface Props {
