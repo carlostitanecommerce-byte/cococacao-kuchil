@@ -170,6 +170,11 @@ export function CambiarMetodoPagoDialog({ venta, cajaEstado, cajaFolio, onClose,
             <span className="text-muted-foreground">Total de la venta:</span>
             <span className="font-semibold">${totalVenta.toFixed(2)}</span>
           </div>
+          {venta.monto_propina > 0 && (
+            <p className="text-xs text-muted-foreground text-right -mt-3">
+              Incluye propina de ${venta.monto_propina.toFixed(2)}
+            </p>
+          )}
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Método actual:</span>
             <Badge variant="outline">{METODOS[venta.metodo_pago] ?? venta.metodo_pago}</Badge>
@@ -192,6 +197,11 @@ export function CambiarMetodoPagoDialog({ venta, cajaEstado, cajaFolio, onClose,
           {nuevoMetodo === 'mixto' && (
             <div className="space-y-2 rounded-md border border-border p-3">
               <Label className="text-xs text-muted-foreground">Desglose (debe sumar ${totalVenta.toFixed(2)})</Label>
+              {venta.monto_propina > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  El total incluye ${venta.monto_propina.toFixed(2)} de propina (originalmente cobrada por método digital).
+                </p>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <Label className="text-xs">Efectivo</Label>
