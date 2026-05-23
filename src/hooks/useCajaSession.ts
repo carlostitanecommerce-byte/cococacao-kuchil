@@ -5,6 +5,7 @@ import { nowCDMX } from '@/lib/utils';
 
 export interface CajaSession {
   id: string;
+  folio: number;
   usuario_id: string;
   monto_apertura: number;
   monto_cierre: number | null;
