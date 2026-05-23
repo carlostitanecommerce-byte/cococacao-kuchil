@@ -235,7 +235,7 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
         )}
 
         <DialogFooter className="no-print gap-2">
-          <Button variant="outline" className="flex-1" onClick={() => window.print()} disabled={loading}>
+          <Button variant="outline" className="flex-1" onClick={handlePrint} disabled={loading}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir
           </Button>
           <Button className="flex-1" onClick={onClose}>Cerrar</Button>
