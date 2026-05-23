@@ -152,7 +152,19 @@ export function CajaCheckoutPanel() {
       toast.error('La caja se cerró. Reabre una caja para cobrar.');
       return;
     }
-    if (!mixtoValido) { toast.error(`Pagos mixtos suman $${sumaMixta.toFixed(2)} pero el total es $${total.toFixed(2)}`); return; }
+    if (propinaExcedeSubtotal) {
+      toast.error('La propina no puede exceder el subtotal del ticket.');
+      return;
+    }
+    if (!sumaMixtaCuadra) {
+      toast.error(`Pagos mixtos suman $${sumaMixta.toFixed(2)} pero el total es $${total.toFixed(2)}`);
+      return;
+    }
+    if (!mixtoTarjetaCubrePropina) {
+      toast.error(`El monto de tarjeta debe cubrir al menos la propina digital ($${propina.toFixed(2)}).`);
+      return;
+    }
+
 
     const ventaSummary: VentaSummary = {
       items,
