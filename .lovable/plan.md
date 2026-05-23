@@ -1,108 +1,106 @@
-# Plan: Corregir cálculos de totales en Historial de Ventas y Ticket
+# Plan: Correcciones a sesiones pendientes de pago
 
-## Diagnóstico (folio 118 del 22 de mayo)
+Corregir las 3 observaciones detectadas en la auditoría del flujo de cobro de coworking en Caja, para dejarlo 100% listo para producción.
 
-Datos reales en la base de datos:
+---
 
-| Campo                  | Valor   | Significado                                              |
-|------------------------|---------|----------------------------------------------------------|
-| `total_bruto`          | 150.00  | Subtotal de productos (paquete), IVA **incluido**        |
-| `iva`                  | 20.69   | IVA contenido dentro de `total_bruto` (150 − 150/1.16)   |
-| `monto_propina`        | 15.00   | Propina (no gravable)                                    |
-| `comisiones_bancarias` | 5.25    | 3.5% sobre `total_bruto` (cobro con tarjeta)             |
-| `total_neto`           | 144.75  | `total_bruto − comisiones_bancarias` (lo que entra neto) |
-| `monto_tarjeta`        | 165.00  | Lo que realmente cargó el cliente en la terminal         |
+## Paso 1 — Liberar `pendingSessionId` atascado en URL
 
-**El cliente pagó $165.** El cajero ve **$144.75** en el historial y **$159.75** como TOTAL en el ticket. Ambos son incorrectos para la perspectiva de cobro al cliente.
+**Archivo:** `src/components/caja/CoworkingSessionSelector.tsx`
 
-## Causa raíz
+**Problema:** Cuando el usuario llega a `/caja?session=<id>` desde el redirect de coworking, pero esa sesión ya fue cobrada o cancelada por otro cajero, el `useEffect` que consume `pendingSessionId` solo dispara `onPendingConsumed()` si encuentra la sesión en el listado. Si no aparece, el query param queda colgado en la URL indefinidamente y puede reactivarse incorrectamente en futuros refrescos del listado.
 
-La doctrina del proyecto (`src/lib/ventasUtils.ts`) define dos conceptos legítimos:
+**Corrección:**
+- Ampliar el `useEffect` para que, cuando `!loading && pendingSessionId` y la sesión NO está en `sessions`, también llame `onPendingConsumed?.()`.
+- Mantener el comportamiento actual cuando sí la encuentra (importar + consumir).
 
-- **Cobrado al cliente** = `total_bruto + monto_propina` — lo que pagó el cliente en su terminal/efectivo, indistinto de la comisión que descuente el banco. Aplica en UI cara al cliente/cajero.
-- **Ingreso neto del negocio** = `total_neto + monto_propina` — qué entra a la empresa después de la comisión bancaria del adquirente. Aplica en reportes contables.
-
-El error es que en la UI orientada al cliente y al cajero (historial, ticket, diálogos de cambio/cancelación) se está mostrando el **ingreso neto** en lugar del **cobrado al cliente**. Eso confunde porque no coincide con el comprobante físico del POS ni con lo que el cliente recuerda haber pagado.
-
-Adicionalmente, en el ticket reimprimido el "Subtotal (sin IVA)" se calcula como `total_neto − iva` (= 124.06), restando dos veces la comisión bancaria del cálculo: el subtotal facturable debe ser `total_bruto − iva` (= 129.31).
-
-## Cambios
-
-### 1. `src/lib/ventasUtils.ts` — helpers canónicos + doctrina actualizada
-
-Reescribir el comentario doctrinal para que diga **explícitamente**:
-
-```
-- Cobrado al cliente   = total_bruto + monto_propina   (UI: ticket, historial, diálogos)
-- Ingreso neto negocio = total_neto  + monto_propina   (reportes contables, cierre caja)
-- Subtotal sin IVA     = total_bruto − iva             (base facturable)
-- IVA                  = total_bruto − (total_bruto / 1.16)
-- Comisión bancaria    = total_bruto − total_neto      (la come el negocio, no el cliente)
+```ts
+useEffect(() => {
+  if (!pendingSessionId || loading) return;
+  const session = sessions.find(s => s.id === pendingSessionId);
+  if (session) {
+    handleSelect(session);
+  }
+  // En ambos casos (encontrada o no), liberar la URL
+  onPendingConsumed?.();
+}, [pendingSessionId, loading, sessions]);
 ```
 
-Agregar tres funciones puras (`montoCobrado`, `ingresoNeto`, `subtotalSinIva`) que reciban un objeto con los campos relevantes y devuelvan el número, para que ningún componente reinvente la fórmula.
+---
 
-### 2. `src/components/caja/VentasTurnoPanel.tsx` (línea 267)
+## Paso 2 — Manejo de errores en `fetchSessions`
 
-Columna "Total" del historial: cambiar `v.total_neto` por `montoCobrado(v)` (= `total_bruto + monto_propina`). Esta es la cifra que cuadra con el ticket y con lo que cargaron al cliente.
+**Archivo:** `src/components/caja/CoworkingSessionSelector.tsx`
 
-### 3. `src/components/caja/TicketReimprimirDialog.tsx`
+**Problema:** Si Supabase rechaza el `select` de `coworking_sessions` o de `areas_coworking`, no hay `try/catch` ni se actualiza `loading`. El componente queda en estado "Cargando..." indefinido sin feedback al cajero.
 
-- Línea 140: `subtotalSinIva = total_bruto − iva` (antes usaba `total_neto`).
-- Línea 219 (TOTAL grande del ticket): `total_bruto + monto_propina` en vez de `total_neto + monto_propina`.
-- Línea 56 (audit log de reimpresión): mismo ajuste para que el log refleje lo cobrado al cliente.
-- Extender la interfaz `VentaResumen` con `total_bruto: number`.
+**Corrección:**
+- Envolver `fetchSessions` en `try/catch/finally`.
+- En `catch`: mostrar `toast` destructivo con el mensaje de error (legible, no UUID).
+- En `finally`: garantizar `setLoading(false)`.
+- Validar también el error del segundo query (`areas_coworking`) — si falla, no romper, dejar `area_nombre: 'Desconocida'`.
 
-### 4. `src/components/caja/VentasTurnoPanel.tsx` — propagación de `total_bruto`
+```ts
+const fetchSessions = async () => {
+  try {
+    const { data: sessData, error: sessErr } = await supabase
+      .from('coworking_sessions')
+      .select('...')
+      .eq('estado', 'pendiente_pago');
+    if (sessErr) throw sessErr;
+    // ... resto de la lógica
+  } catch (e: any) {
+    toast({
+      variant: 'destructive',
+      title: 'No se pudieron cargar las sesiones',
+      description: e.message ?? 'Error desconocido',
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+```
 
-- **Query Supabase (línea 79):** agregar `total_bruto` al `select(...)`.
-- **Interfaz `VentaTurno` (líneas 21-39):** agregar `total_bruto: number`.
-- **Propagación a hijos:** confirmar que el objeto `v` se pasa íntegro como prop `venta` a:
-  - `<CambiarMetodoPagoDialog venta={editPagoVenta} ... />` (línea 338) — ya pasa el objeto completo, por lo que `total_bruto` viaja gratis al ampliar la interfaz.
-  - `<CancelVentaDialog venta={cancelVenta} ... />` (línea 329) — idem.
-  - `<TicketReimprimirDialog venta={reprintVenta as any} ... />` (línea 346) — idem; remover el `as any` si las interfaces ya coinciden.
+---
 
-### 5. `src/components/caja/CambiarMetodoPagoDialog.tsx` (línea 51)
+## Paso 3 — Preservar desglose de `monto_acumulado` al finalizar sesión
 
-- Añadir `total_bruto: number` a la interfaz `VentaResumen` local.
-- `totalVenta = total_bruto + monto_propina` (antes usaba `total_neto + monto_propina`). Esto es lo que el cajero ve para validar el desglose mixto: debe coincidir con lo que el cliente paga.
+**Archivos:**
+- Migración SQL sobre la función RPC `cerrar_cuenta_coworking`
+- (Sin cambios de UI)
 
-### 6. `src/components/caja/CancelVentaDialog.tsx`
+**Problema:** Al finalizar la sesión, la RPC sobreescribe `coworking_sessions.monto_acumulado` con `total_bruto`. Esto pierde el desglose original (tiempo vs. consumos vs. amenities) que se había ido acumulando durante la sesión. Aunque los detalles viven en `detalle_ventas`, los reportes históricos de "ingreso por sesión" se quedan sin la composición previa al cobro.
 
-- Añadir `total_bruto: number` (y confirmar `monto_propina: number`) a la interfaz `VentaBasic` local.
-- **Panel de resumen visible (línea 144):** mostrar `${(venta.total_bruto + venta.monto_propina).toFixed(2)}` en lugar de `venta.total_neto.toFixed(2)`.
-- **`handleSendRequest` (líneas 54, 97-98):** registrar en el audit log y en el campo `total` del payload el monto **cobrado al cliente** (`total_bruto + monto_propina`), porque eso es lo que el cliente espera ver reembolsado o cancelado.
+**Corrección (decisión doctrinal):**
 
-### 7. `src/components/caja/SolicitudesCancelacionPanel.tsx`
+Dado que la doctrina del sistema dice que `detalle_ventas` es la fuente de verdad transaccional, mantenemos `monto_acumulado` como **monto cobrado final** (lo que ya hace la RPC), pero agregamos una nueva columna `monto_acumulado_preview` (numeric, nullable) que conserve el valor que tenía la sesión **justo antes** de finalizar.
 
-- **Query (línea 56):** agregar `total_bruto, monto_propina` al `select('id, total_neto, fecha')` para que `venta_total` se calcule con la cifra correcta.
-- **Query (línea 92):** agregar `total_bruto, monto_propina` al select de aprobación.
-- Cambiar `ventaMap.get(s.venta_id)?.total_neto ?? 0` y los usos de `ventaData.total_neto` por `total_bruto + monto_propina`.
+Pasos:
+1. **Migración:**
+   - `ALTER TABLE coworking_sessions ADD COLUMN monto_acumulado_preview numeric;`
+   - Modificar la RPC `cerrar_cuenta_coworking` para que, antes de sobrescribir `monto_acumulado`, copie su valor actual a `monto_acumulado_preview` en el mismo `UPDATE`.
+2. **Sin cambios de UI/cliente** en este sprint. La columna queda disponible para reportes futuros (Menu Engineering / Coworking Analysis) sin modificar el contrato actual.
 
-### 8. `src/components/caja/ConfirmVentaDialog.tsx` (vista de ticket pos-venta, líneas 501, 517-519)
+Esto preserva la trazabilidad histórica del importe acumulado preliminar sin alterar el flujo de cobro.
 
-Verificar coherencia con el ticket reimpreso: el "Subtotal (sin IVA)" en `ticket.subtotal − ticket.iva` está correcto aquí porque `ticket.subtotal` ya es el bruto vivo del carrito (`summary.subtotal`), no `total_neto`. El TOTAL ya usa `summary.total = subtotal + propina`, también correcto. **No requiere cambio**, pero se documenta para evitar regresiones.
+---
 
-### Lo que NO se toca
+## Sección técnica (resumen)
 
-- `total_bruto` y `total_neto` en `ventas` permanecen como están: la separación es correcta y necesaria para contabilidad.
-- `GeneralTab.tsx` (reportes) sigue usando `total_neto` para "Ingreso Gravable" — eso es correcto contablemente.
-- `CierreCajaDialog.tsx` usa `total_neto` para el resumen del cierre: es el ingreso real para el negocio (el banco deposita el neto, no el bruto). **Es el dato correcto** para arqueo.
-- Trigger `recalc_comisiones_bancarias` y migraciones SQL: sin cambios.
+| # | Archivo / Objeto | Cambio | Riesgo |
+|---|---|---|---|
+| 1 | `CoworkingSessionSelector.tsx` (useEffect pendingSessionId) | Llamar `onPendingConsumed()` también cuando la sesión no existe | Bajo — solo limpia URL |
+| 2 | `CoworkingSessionSelector.tsx` (fetchSessions) | `try/catch/finally` + toast de error | Bajo — mejora robustez |
+| 3 | Migración + RPC `cerrar_cuenta_coworking` | Nueva columna `monto_acumulado_preview` + copia previa al overwrite | Bajo — campo aditivo, sin cambios de contrato |
 
-## Verificación
+## Validación post-cambio
 
-Tras los cambios, para folio 118 se debe ver:
+- **Obs. 1:** Visitar `/caja?session=<id-inexistente>` → la URL se limpia sola en <1s, listado responde normal.
+- **Obs. 2:** Simular error (revocar permisos RLS temporalmente en consola) → aparece toast "No se pudieron cargar las sesiones" y el componente sale de "Cargando...".
+- **Obs. 3:** Crear sesión, agregar consumos, cobrar → consultar `SELECT monto_acumulado, monto_acumulado_preview FROM coworking_sessions WHERE id = '<id>'` y confirmar que `monto_acumulado_preview` conserva el valor anterior al cobro y `monto_acumulado` refleja el `total_bruto` final.
 
-- Historial → columna Total: **$165.00**.
-- Ticket reimpreso:
-  - Subtotal (sin IVA): **$129.31**
-  - IVA: $20.69
-  - Propina: +$15.00
-  - **TOTAL: $165.00**
-- Diálogo "Cambiar método": Total a cuadrar = **$165.00**.
-- Diálogo "Cancelar venta": resumen = **$165.00**, audit log registra $165.00.
-- Panel de solicitudes de cancelación: `venta_total` = **$165.00**.
-- Reporte General → Ingreso Gravable sigue mostrando $144.75 (sin cambio, correcto contablemente).
+## Fuera de alcance
 
-Se valida visualmente abriendo la venta folio 118 en `/caja` y reimprimiendo el ticket.
+- No se tocan cálculos de tarifa, IVA, propina ni descuentos (ya validados en el sprint anterior).
+- No se modifica `CajaCheckoutPanel`, `ConfirmVentaDialog` ni el carrito.
+- No se cambian políticas RLS ni roles.

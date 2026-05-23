@@ -344,6 +344,7 @@ export type Database = {
           fecha_salida_real: string | null
           id: string
           monto_acumulado: number
+          monto_acumulado_preview: number | null
           pax_count: number
           tarifa_id: string | null
           tarifa_snapshot: Json | null
@@ -360,6 +361,7 @@ export type Database = {
           fecha_salida_real?: string | null
           id?: string
           monto_acumulado?: number
+          monto_acumulado_preview?: number | null
           pax_count?: number
           tarifa_id?: string | null
           tarifa_snapshot?: Json | null
@@ -376,6 +378,7 @@ export type Database = {
           fecha_salida_real?: string | null
           id?: string
           monto_acumulado?: number
+          monto_acumulado_preview?: number | null
           pax_count?: number
           tarifa_id?: string | null
           tarifa_snapshot?: Json | null
