@@ -111,7 +111,96 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
     });
   }, [grupos, seleccion]);
 
+  // Validación de stock por opción: mapa producto_id -> { viable, motivo? }
+  const [stockMap, setStockMap] = useState<Record<string, { viable: boolean; motivo?: string }>>({});
+  const [validating, setValidating] = useState(false);
+  const validateSeqRef = useRef(0);
+  const cartItems = useCartStore(s => s.items);
+
+  // IDs únicos de productos candidatos en el diálogo
+  const candidateProductIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const g of grupos) for (const op of g.opciones) ids.add(op.producto_id);
+    return Array.from(ids);
+  }, [grupos]);
+
+  // Recalcular viabilidad de cada opción cuando cambia la selección o el carrito
+  useEffect(() => {
+    if (!open || !paquete || candidateProductIds.length === 0) {
+      setStockMap({});
+      return;
+    }
+
+    const seq = ++validateSeqRef.current;
+    setValidating(true);
+
+    // Componentes ya seleccionados (cuenta cada opción como 1 unidad)
+    const seleccionados: Record<string, number> = {};
+    for (const g of grupos) {
+      for (const op of (seleccion[g.id] ?? [])) {
+        seleccionados[op.producto_id] = (seleccionados[op.producto_id] ?? 0) + 1;
+      }
+    }
+
+    // Snapshot del carrito (sin el paquete tentativo)
+    const cartSnapshot = cartItems.map((i) => ({
+      producto_id: i.producto_id,
+      cantidad: i.cantidad,
+      tipo_concepto: i.tipo_concepto,
+      componentes: (i as any).componentes,
+    }));
+
+    const buildTentativeForOption = (productoId: string) => {
+      const counts = new Map<string, number>(Object.entries(seleccionados));
+      counts.set(productoId, (counts.get(productoId) ?? 0) + 1);
+      const componentes = Array.from(counts.entries()).map(([pid, cant]) => ({
+        producto_id: pid, cantidad: cant,
+      }));
+      return [
+        ...cartSnapshot,
+        {
+          producto_id: paquete.id,
+          cantidad: 1,
+          tipo_concepto: 'paquete',
+          componentes,
+        },
+      ];
+    };
+
+    (async () => {
+      const results = await Promise.all(
+        candidateProductIds.map(async (pid) => {
+          const items = buildTentativeForOption(pid);
+          const { data, error } = await supabase.rpc('validar_stock_carrito', { p_items: items as any });
+          if (error) return [pid, { viable: true }] as const;
+          const r = data as unknown as { valido: boolean; error?: string };
+          return [pid, { viable: !!r?.valido, motivo: r?.error }] as const;
+        })
+      );
+      if (seq !== validateSeqRef.current) return;
+      const next: Record<string, { viable: boolean; motivo?: string }> = {};
+      for (const [pid, v] of results) next[pid] = v;
+      setStockMap(next);
+      setValidating(false);
+    })();
+  }, [open, paquete, grupos, seleccion, cartItems, candidateProductIds]);
+
+  // Indica si la selección actual ya es inviable de por sí
+  const seleccionInviable = useMemo(() => {
+    for (const g of grupos) {
+      for (const op of (seleccion[g.id] ?? [])) {
+        if (stockMap[op.producto_id]?.viable === false) return true;
+      }
+    }
+    return false;
+  }, [grupos, seleccion, stockMap]);
+
   const addOpcion = (grupo: Grupo, opcion: Opcion) => {
+    const stockInfo = stockMap[opcion.producto_id];
+    if (stockInfo && !stockInfo.viable) {
+      toast.error(stockInfo.motivo || `Sin stock suficiente para "${opcion.nombre_producto}"`);
+      return;
+    }
     setSeleccion(prev => {
       const actuales = prev[grupo.id] ?? [];
       if (actuales.length >= grupo.cantidad_incluida) {
@@ -121,6 +210,7 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
       return { ...prev, [grupo.id]: [...actuales, opcion] };
     });
   };
+
 
   const removeOpcionAt = (grupoId: string, idx: number) => {
     setSeleccion(prev => {
