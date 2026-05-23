@@ -48,8 +48,11 @@ interface Props {
   cajaAbierta?: CajaAbierta | null;
 }
 
+const QUERY_LIMIT = 200;
+
 export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
   const [ventas, setVentas] = useState<VentaTurno[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [open, setOpen] = useState(false);
   const [cancelVenta, setCancelVenta] = useState<VentaTurno | null>(null);
   const [editPagoVenta, setEditPagoVenta] = useState<VentaTurno | null>(null);
@@ -66,25 +69,27 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
     // No-admin sin caja abierta: no debería ver historial.
     if (!isAdmin && !cajaAbierta) {
       setVentas([]);
+      setTotalCount(0);
       return;
     }
 
     const { desdeISO, hastaISO } = cdmxDateRange(effectiveDate, effectiveDate);
     let query = supabase
       .from('ventas')
-      .select('id, folio, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id, caja_id')
+      .select('id, folio, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id, caja_id', { count: 'exact' })
       .in('estado', ['completada', 'cancelada'])
       .gte('fecha', desdeISO)
       .lte('fecha', hastaISO)
       .order('fecha', { ascending: false })
-      .limit(200);
+      .limit(QUERY_LIMIT);
 
     if (noAdminLockedToTurno) {
       query = query.eq('caja_id', cajaAbierta!.id);
     }
 
-    const { data } = await query;
+    const { data, count } = await query;
     const rows = (data as VentaTurno[]) ?? [];
+    setTotalCount(count ?? rows.length);
 
     // Para admin: resolver estado/folio de la caja de cada venta (para detectar turnos cerrados).
     if (isAdmin && rows.length > 0) {
@@ -116,11 +121,29 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
   useEffect(() => {
     fetchVentas();
 
-    const channel = supabase
-      .channel('pos-ventas-turno-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' }, () => fetchVentas())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_ventas' }, () => fetchVentas())
-      .subscribe();
+    // Realtime scope:
+    // - No-admin con caja abierta: solo cambios de su caja.
+    // - Admin viendo HOY: suscripción global (puede haber múltiples cajas).
+    // - Admin viendo fechas pasadas: SIN realtime (modo histórico, refresh manual).
+    const viewingToday = format(effectiveDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+
+    if (!isAdmin && !cajaAbierta) return;
+    if (isAdmin && !viewingToday) return; // histórico: sin realtime
+
+    const ventasFilter = noAdminLockedToTurno ? `caja_id=eq.${cajaAbierta!.id}` : undefined;
+
+    const channel = supabase.channel(`pos-ventas-turno-realtime-${noAdminLockedToTurno ? cajaAbierta!.id : 'admin-today'}`);
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'ventas', ...(ventasFilter ? { filter: ventasFilter } : {}) },
+      () => fetchVentas()
+    );
+    // detalle_ventas no tiene caja_id; suscribir global solo para admin-hoy.
+    if (isAdmin) {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_ventas' }, () => fetchVentas());
+    }
+    channel.subscribe();
+
     return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, isAdmin, cajaAbierta?.id]);
@@ -183,6 +206,17 @@ export function VentasTurnoPanel({ isAdmin, cajaAbierta }: Props) {
                   {!isToday && (
                     <Button variant="ghost" size="sm" onClick={() => setSelectedDate(new Date())}>Hoy</Button>
                   )}
+                  {!isToday && (
+                    <Button variant="outline" size="sm" onClick={() => fetchVentas()} className="gap-1.5">
+                      <RefreshCw className="h-3.5 w-3.5" /> Actualizar
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {totalCount > QUERY_LIMIT && (
+                <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                  Mostrando las {QUERY_LIMIT} ventas más recientes de {totalCount} totales en esta fecha. Para análisis completo, consulta el módulo de Reportes.
                 </div>
               )}
 
