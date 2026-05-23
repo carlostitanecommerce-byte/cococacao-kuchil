@@ -1390,6 +1390,7 @@ export type Database = {
         Args: { p_cancelacion_id: string; p_decision: string; p_notas?: string }
         Returns: Json
       }
+      revertir_stock_venta: { Args: { _venta_id: string }; Returns: undefined }
       solicitar_cancelacion_item_sesion: {
         Args: {
           p_cantidad: number

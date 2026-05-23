@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface VentaForEdit {
@@ -24,6 +24,8 @@ interface VentaForEdit {
 
 interface Props {
   venta: VentaForEdit | null;
+  cajaEstado?: 'abierta' | 'cerrada';
+  cajaFolio?: number | null;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -35,7 +37,9 @@ const METODOS: Record<string, string> = {
   mixto: 'Mixto',
 };
 
-export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
+const MIN_MOTIVO_POST_CIERRE = 10;
+
+export function CambiarMetodoPagoDialog({ venta, cajaEstado, cajaFolio, onClose, onSuccess }: Props) {
   const { user, profile } = useAuth();
   const [nuevoMetodo, setNuevoMetodo] = useState('');
   const [montoEfectivo, setMontoEfectivo] = useState(0);
@@ -45,6 +49,7 @@ export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
   const [loading, setLoading] = useState(false);
 
   const totalVenta = venta ? venta.total_neto + venta.monto_propina : 0;
+  const esPostCierre = cajaEstado === 'cerrada';
 
   useEffect(() => {
     if (venta) {
@@ -81,7 +86,10 @@ export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
     && montoEfectivo === venta.monto_efectivo
     && montoTarjeta === venta.monto_tarjeta
     && montoTransferencia === venta.monto_transferencia;
-  const canSubmit = motivo.trim().length > 0 && mixtoValido && !sinCambio && !loading;
+  const motivoValido = esPostCierre
+    ? motivo.trim().length >= MIN_MOTIVO_POST_CIERRE
+    : motivo.trim().length > 0;
+  const canSubmit = motivoValido && mixtoValido && !sinCambio && !loading;
 
   const handleConfirm = async () => {
     if (!user) return;
@@ -99,10 +107,15 @@ export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
 
       if (error) throw error;
 
+      const accion = esPostCierre ? 'correccion_post_cierre' : 'cambio_metodo_pago';
+      const descripcion = esPostCierre
+        ? `Corrección post-cierre: cambio de método de pago (turno cerrado${cajaFolio ? ` #${String(cajaFolio).padStart(4, '0')}` : ''}) por ${profile?.nombre ?? 'Admin'}`
+        : `Cambio de método de pago por ${profile?.nombre ?? 'Admin'}`;
+
       await supabase.from('audit_logs').insert({
         user_id: user.id,
-        accion: 'cambio_metodo_pago',
-        descripcion: `Cambio de método de pago por ${profile?.nombre ?? 'Admin'}`,
+        accion,
+        descripcion,
         metadata: {
           venta_id: venta.id,
           metodo_anterior: venta.metodo_pago,
@@ -110,10 +123,15 @@ export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
           montos_anteriores: { efectivo: venta.monto_efectivo, tarjeta: venta.monto_tarjeta, transferencia: venta.monto_transferencia },
           montos_nuevos: { efectivo: montoEfectivo, tarjeta: montoTarjeta, transferencia: montoTransferencia },
           motivo: motivo.trim(),
+          ...(esPostCierre ? {
+            tipo_correccion: 'cambio_metodo_pago',
+            caja_folio: cajaFolio,
+            caja_estado_al_momento: 'cerrada',
+          } : {}),
         },
       });
 
-      toast.success('Método de pago actualizado');
+      toast.success(esPostCierre ? 'Corrección post-cierre registrada' : 'Método de pago actualizado');
       onSuccess();
     } catch (err: any) {
       toast.error(err.message || 'Error al actualizar');
@@ -126,11 +144,27 @@ export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
     <Dialog open={!!venta} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Cambiar Método de Pago</DialogTitle>
-          <DialogDescription>Modifica el método de pago de una venta ya procesada.</DialogDescription>
+          <DialogTitle>{esPostCierre ? 'Corrección post-cierre · Método de Pago' : 'Cambiar Método de Pago'}</DialogTitle>
+          <DialogDescription>
+            {esPostCierre
+              ? 'Esta venta pertenece a un turno ya cerrado.'
+              : 'Modifica el método de pago de una venta ya procesada.'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          {esPostCierre && (
+            <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs">
+              <Lock className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-amber-900 dark:text-amber-200">Turno cerrado{cajaFolio ? ` #${String(cajaFolio).padStart(4, '0')}` : ''}</p>
+                <p className="text-amber-800 dark:text-amber-300">
+                  Esta venta pertenece a un turno ya cerrado. El cambio afecta reportes históricos y se registrará como corrección.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Sale info */}
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Total de la venta:</span>
@@ -182,11 +216,14 @@ export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
           <div className="space-y-1.5">
             <Label>Motivo del cambio <span className="text-destructive">*</span></Label>
             <Textarea
-              placeholder="Ej: El cliente pagó con tarjeta, no con efectivo"
+              placeholder={esPostCierre ? `Describe la corrección (mín. ${MIN_MOTIVO_POST_CIERRE} caracteres)...` : 'Ej: El cliente pagó con tarjeta, no con efectivo'}
               value={motivo}
               onChange={e => setMotivo(e.target.value)}
               maxLength={500}
             />
+            {esPostCierre && (
+              <p className="text-[11px] text-muted-foreground text-right">{motivo.trim().length}/{MIN_MOTIVO_POST_CIERRE} mín.</p>
+            )}
           </div>
         </div>
 
@@ -194,7 +231,7 @@ export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
           <Button variant="outline" onClick={onClose} disabled={loading}>Cancelar</Button>
           <Button onClick={handleConfirm} disabled={!canSubmit}>
             {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Confirmar Cambio
+            {esPostCierre ? 'Registrar Corrección' : 'Confirmar Cambio'}
           </Button>
         </DialogFooter>
       </DialogContent>

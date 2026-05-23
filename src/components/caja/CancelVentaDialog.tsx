@@ -3,10 +3,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Loader2, AlertTriangle, Send } from 'lucide-react';
+import { Loader2, AlertTriangle, Send, Lock } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { ejecutarCancelacionVenta } from '@/lib/cancelacionVentaUtils';
 
 interface VentaBasic {
   id: string;
@@ -19,16 +20,25 @@ interface VentaBasic {
 interface Props {
   venta: VentaBasic | null;
   isAdmin: boolean;
+  cajaEstado?: 'abierta' | 'cerrada';
+  cajaFolio?: number | null;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export function CancelVentaDialog({ venta, isAdmin, onClose, onSuccess }: Props) {
+const MIN_MOTIVO_POST_CIERRE = 10;
+
+export function CancelVentaDialog({ venta, isAdmin, cajaEstado, cajaFolio, onClose, onSuccess }: Props) {
   const { user, profile } = useAuth();
   const [motivo, setMotivo] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (!venta) return null;
+
+  const esPostCierre = isAdmin && cajaEstado === 'cerrada';
+  const motivoValido = esPostCierre
+    ? motivo.trim().length >= MIN_MOTIVO_POST_CIERRE
+    : motivo.trim().length > 0;
 
   const handleClose = () => {
     setMotivo('');
@@ -36,33 +46,30 @@ export function CancelVentaDialog({ venta, isAdmin, onClose, onSuccess }: Props)
   };
 
   const handleAdminCancel = async () => {
-    if (!user || !motivo.trim()) return;
+    if (!user || !motivoValido) return;
     setLoading(true);
     try {
-      // 1. Update venta
-      const { error } = await supabase.from('ventas').update({
-        estado: 'cancelada' as any,
-        motivo_cancelacion: motivo.trim(),
-      }).eq('id', venta.id);
-      if (error) throw error;
-
-      // 2. Revert coworking session if linked
-      if (venta.coworking_session_id) {
-        await supabase.from('coworking_sessions').update({
-          estado: 'pendiente_pago' as any,
-          fecha_salida_real: null,
-        }).eq('id', venta.coworking_session_id);
-      }
-
-      // 3. Audit log
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        accion: 'cancelar_venta',
-        descripcion: `Venta $${venta.total_neto.toFixed(2)} cancelada por ${profile?.nombre ?? 'Admin'}. Motivo: ${motivo.trim()}`,
-        metadata: { venta_id: venta.id, total: venta.total_neto, motivo: motivo.trim() },
+      const res = await ejecutarCancelacionVenta({
+        ventaId: venta.id,
+        total: venta.total_neto,
+        motivo: motivo.trim(),
+        coworkingSessionId: venta.coworking_session_id,
+        userId: user.id,
+        actorNombre: profile?.nombre,
+        postCierre: esPostCierre,
+        cajaFolio: cajaFolio ?? null,
       });
 
-      toast.success('Venta cancelada exitosamente');
+      const detalles: string[] = [];
+      if (res.lineasOpenAccountReabiertas > 0) detalles.push(`${res.lineasOpenAccountReabiertas} consumos reabiertos`);
+      if (res.stockRevertido) detalles.push('stock restituido');
+      if (res.kdsCanceladas > 0) detalles.push(`${res.kdsCanceladas} órdenes de cocina canceladas`);
+      if (res.coworkingRevertida) detalles.push('sesión coworking reactivada');
+
+      toast.success(
+        esPostCierre ? 'Corrección post-cierre registrada' : 'Venta cancelada exitosamente',
+        detalles.length > 0 ? { description: detalles.join(' · ') } : undefined,
+      );
       setMotivo('');
       onSuccess();
     } catch (err: any) {
@@ -107,16 +114,30 @@ export function CancelVentaDialog({ venta, isAdmin, onClose, onSuccess }: Props)
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />
-            {isAdmin ? 'Cancelar Venta' : 'Solicitar Cancelación'}
+            {isAdmin ? (esPostCierre ? 'Corrección post-cierre' : 'Cancelar Venta') : 'Solicitar Cancelación'}
           </DialogTitle>
           <DialogDescription>
             {isAdmin
-              ? 'Esta acción cancelará la venta de forma inmediata.'
+              ? (esPostCierre
+                ? 'Esta venta pertenece a un turno ya cerrado.'
+                : 'Esta acción cancelará la venta de forma inmediata.')
               : 'Se enviará una solicitud al administrador para su aprobación.'}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          {esPostCierre && (
+            <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs">
+              <Lock className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-amber-900 dark:text-amber-200">Turno cerrado{cajaFolio ? ` #${String(cajaFolio).padStart(4, '0')}` : ''}</p>
+                <p className="text-amber-800 dark:text-amber-300">
+                  El cambio afecta reportes históricos y se registrará como corrección post-cierre en la bitácora. El motivo debe tener al menos {MIN_MOTIVO_POST_CIERRE} caracteres.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="bg-muted/50 rounded-md p-3 space-y-1 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Total</span>
@@ -124,7 +145,7 @@ export function CancelVentaDialog({ venta, isAdmin, onClose, onSuccess }: Props)
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Fecha</span>
-              <span>{new Date(venta.fecha).toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })}</span>
+              <span>{new Date(venta.fecha).toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short', timeZone: 'America/Mexico_City' })}</span>
             </div>
           </div>
 
@@ -132,21 +153,24 @@ export function CancelVentaDialog({ venta, isAdmin, onClose, onSuccess }: Props)
             <Label htmlFor="motivo">Motivo de cancelación *</Label>
             <Textarea
               id="motivo"
-              placeholder="Describe el motivo de la cancelación..."
+              placeholder={esPostCierre ? `Describe la corrección (mín. ${MIN_MOTIVO_POST_CIERRE} caracteres)...` : 'Describe el motivo de la cancelación...'}
               value={motivo}
               onChange={e => setMotivo(e.target.value)}
               maxLength={500}
               rows={3}
             />
+            {esPostCierre && (
+              <p className="text-[11px] text-muted-foreground text-right">{motivo.trim().length}/{MIN_MOTIVO_POST_CIERRE} mín.</p>
+            )}
           </div>
         </div>
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={handleClose} disabled={loading}>Cerrar</Button>
           {isAdmin ? (
-            <Button variant="destructive" onClick={handleAdminCancel} disabled={loading || !motivo.trim()}>
+            <Button variant="destructive" onClick={handleAdminCancel} disabled={loading || !motivoValido}>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirmar Cancelación
+              {esPostCierre ? 'Registrar Corrección' : 'Confirmar Cancelación'}
             </Button>
           ) : (
             <Button onClick={handleSendRequest} disabled={loading || !motivo.trim()}>

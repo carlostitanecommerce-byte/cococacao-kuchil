@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Printer } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 
 interface VentaResumen {
@@ -41,9 +42,37 @@ const NEGOCIO_DIRECCION = 'Mérida, Yucatán';
 const NEGOCIO_RFC = ''; // Configurable a futuro
 
 export function TicketReimprimirDialog({ venta, onClose }: Props) {
+  const { user, profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [detalles, setDetalles] = useState<DetalleLinea[]>([]);
   const [usuarioNombre, setUsuarioNombre] = useState('');
+
+  const handlePrint = async () => {
+    if (!venta || !user) {
+      window.print();
+      return;
+    }
+    try {
+      const total = Number(venta.total_neto) + Number(venta.monto_propina);
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        accion: 'reimpresion_ticket',
+        descripcion: `Reimpresión de ticket #${String(venta.folio).padStart(4, '0')} ($${total.toFixed(2)}) por ${profile?.nombre ?? 'Usuario'}`,
+        metadata: {
+          venta_id: venta.id,
+          folio: venta.folio,
+          total_neto: venta.total_neto,
+          monto_propina: venta.monto_propina,
+          usuario_atendio: usuarioNombre,
+        },
+      });
+      toast.success('Reimpresión registrada');
+    } catch (err) {
+      console.error('No se pudo registrar la reimpresión', err);
+    } finally {
+      window.print();
+    }
+  };
 
   useEffect(() => {
     if (!venta) return;
@@ -206,7 +235,7 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
         )}
 
         <DialogFooter className="no-print gap-2">
-          <Button variant="outline" className="flex-1" onClick={() => window.print()} disabled={loading}>
+          <Button variant="outline" className="flex-1" onClick={handlePrint} disabled={loading}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir
           </Button>
           <Button className="flex-1" onClick={onClose}>Cerrar</Button>
