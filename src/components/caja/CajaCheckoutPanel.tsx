@@ -453,7 +453,7 @@ export function CajaCheckoutPanel() {
             size="lg"
             className="w-full"
             onClick={handleCobrar}
-            disabled={!mixtoValido || !cajaAbierta}
+            disabled={!mixtoValido || !cajaAbierta || propinaExcedeSubtotal}
           >
             <CreditCard className="mr-2 h-4 w-4" />
             Cobrar ${total.toFixed(2)}
@@ -466,6 +466,27 @@ export function CajaCheckoutPanel() {
         onClose={() => setSummary(null)}
         onSuccess={handleSuccess}
       />
+
+      <AlertDialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Descartar esta vista del ticket?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El ticket contiene {openAccountCount} consumo{openAccountCount !== 1 ? 's' : ''} de la cuenta abierta de{' '}
+              <strong>{clienteNombre ?? 'la sesión'}</strong>. Limpiar solo descarta esta vista; los consumos
+              siguen registrados en la sesión y se podrán cobrar más tarde re-importándola desde "Sesiones pendientes de pago".
+              <br /><br />
+              Para eliminar o ajustar consumos reales, usa Coworking → Administrar cuenta.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { clear(); setConfirmClearOpen(false); }}>
+              Sí, descartar vista
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
