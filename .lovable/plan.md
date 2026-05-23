@@ -1,106 +1,103 @@
-# Plan: Correcciones a sesiones pendientes de pago
+# Plan: Correcciones a sesiones pendientes de pago en Caja (4 observaciones)
 
-Corregir las 3 observaciones detectadas en la auditoría del flujo de cobro de coworking en Caja, para dejarlo 100% listo para producción.
+Cerrar los 4 hallazgos de la auditoría sobre `CoworkingSessionSelector` y el flujo de cancelación/importación de sesiones pendientes de pago.
 
 ---
 
-## Paso 1 — Liberar `pendingSessionId` atascado en URL
+## Paso 1 — 🔴 Permitir cancelar sesiones en `pendiente_pago`
+
+**Archivo:** Migración SQL sobre la RPC `cancelar_sesion_coworking`.
+
+**Problema:** La RPC bloquea cualquier estado distinto de `'activo'`. El botón "Cancelar" en el selector de Caja apunta a sesiones `pendiente_pago` y siempre falla con `Solo se pueden cancelar sesiones activas (estado actual: pendiente_pago)`. Lo mismo bloquea la aprobación de solicitudes de cancelación enviadas por operadores sobre sesiones que ya pasaron a pendiente_pago.
+
+**Corrección:**
+- Cambiar la guarda a aceptar ambos estados:
+  ```sql
+  IF v_session.estado NOT IN ('activo', 'pendiente_pago') THEN
+    RAISE EXCEPTION 'Solo se pueden cancelar sesiones activas o pendientes de pago (estado actual: %)', v_session.estado USING ERRCODE = '22023';
+  END IF;
+  ```
+- El resto de la lógica de la RPC funciona igual para ambos estados: las líneas con `venta_id IS NULL` se procesan (mermas por entregados, reposición de stock por no entregados, `DELETE` final), la sesión pasa a `cancelado`, `monto_acumulado = 0`, `fecha_salida_real = now()`, y se registra la bitácora. No hace falta una rama distinta.
+- Mantener la doctrina: si la sesión ya tiene `venta_id` estampado en líneas (i.e. `finalizado`), sigue bloqueada — la guarda solo abre los dos estados pre-cobro.
+
+**Verificación post-cambio:**
+- Crear sesión, mandar al cobro (queda `pendiente_pago`), regresar a Caja, presionar el botón rojo de basura → la cancelación pasa, la sesión cae a `cancelado`, los consumos abiertos se procesan según entregas declaradas.
+
+---
+
+## Paso 2 — Mostrar monto acumulado en la lista de sesiones
 
 **Archivo:** `src/components/caja/CoworkingSessionSelector.tsx`
 
-**Problema:** Cuando el usuario llega a `/caja?session=<id>` desde el redirect de coworking, pero esa sesión ya fue cobrada o cancelada por otro cajero, el `useEffect` que consume `pendingSessionId` solo dispara `onPendingConsumed()` si encuentra la sesión en el listado. Si no aparece, el query param queda colgado en la URL indefinidamente y puede reactivarse incorrectamente en futuros refrescos del listado.
+**Problema:** El listado solo muestra tiempo transcurrido. `monto_acumulado` se trae en el query pero nunca se pinta, así que el cajero importa "a ciegas".
 
 **Corrección:**
-- Ampliar el `useEffect` para que, cuando `!loading && pendingSessionId` y la sesión NO está en `sessions`, también llame `onPendingConsumed?.()`.
-- Mantener el comportamiento actual cuando sí la encuentra (importar + consumir).
-
-```ts
-useEffect(() => {
-  if (!pendingSessionId || loading) return;
-  const session = sessions.find(s => s.id === pendingSessionId);
-  if (session) {
-    handleSelect(session);
-  }
-  // En ambos casos (encontrada o no), liberar la URL
-  onPendingConsumed?.();
-}, [pendingSessionId, loading, sessions]);
-```
+- En la fila de cada sesión pendiente, mostrar el monto acumulado como badge a la derecha del tiempo:
+  ```tsx
+  <Badge variant="secondary" className="text-[10px] px-1 h-4 font-mono">
+    ${Number(s.monto_acumulado ?? 0).toFixed(2)}
+  </Badge>
+  ```
+- Etiquetar como "Acumulado" en tooltip para no confundir con el total final post-cobro (que incluye excedente de tiempo + propina y se calcula al importar). El propósito es dar referencia previa.
+- No agregar nuevas queries ni cálculos pesados — usar el valor ya disponible.
 
 ---
 
-## Paso 2 — Manejo de errores en `fetchSessions`
+## Paso 3 — Restringir el botón de cancelar por rol
 
-**Archivo:** `src/components/caja/CoworkingSessionSelector.tsx`
+**Archivos:** `src/components/caja/CoworkingSessionSelector.tsx`
 
-**Problema:** Si Supabase rechaza el `select` de `coworking_sessions` o de `areas_coworking`, no hay `try/catch` ni se actualiza `loading`. El componente queda en estado "Cargando..." indefinido sin feedback al cajero.
+**Problema:** El botón `Ban` (basura roja) se muestra a todos los roles que entran a `/caja`. Aunque `isAdmin` controla la rama interna del dialog (RPC directa vs. solicitud), la *visibilidad* del botón no está gobernada y cualquier cajero podría iniciar el flujo.
 
 **Corrección:**
-- Envolver `fetchSessions` en `try/catch/finally`.
-- En `catch`: mostrar `toast` destructivo con el mensaje de error (legible, no UUID).
-- En `finally`: garantizar `setLoading(false)`.
-- Validar también el error del segundo query (`areas_coworking`) — si falla, no romper, dejar `area_nombre: 'Desconocida'`.
-
-```ts
-const fetchSessions = async () => {
-  try {
-    const { data: sessData, error: sessErr } = await supabase
-      .from('coworking_sessions')
-      .select('...')
-      .eq('estado', 'pendiente_pago');
-    if (sessErr) throw sessErr;
-    // ... resto de la lógica
-  } catch (e: any) {
-    toast({
-      variant: 'destructive',
-      title: 'No se pudieron cargar las sesiones',
-      description: e.message ?? 'Error desconocido',
-    });
-  } finally {
-    setLoading(false);
-  }
-};
-```
+- Derivar `puedeCancelar` con la misma política que ya rige cancelaciones operativas en POS/Caja: **administrador, supervisor o caja** pueden invocar el flujo (admin = directo, supervisor/caja = solicitud). Barista u otros roles no ven el botón.
+  ```ts
+  const puedeCancelar =
+    roles.includes('administrador') ||
+    roles.includes('supervisor') ||
+    roles.includes('caja');
+  ```
+- Renderizar el botón `Ban` solo cuando `puedeCancelar === true`.
+- `isAdmin` se sigue pasando al dialog tal cual para que la rama interna no cambie.
 
 ---
 
-## Paso 3 — Preservar desglose de `monto_acumulado` al finalizar sesión
+## Paso 4 — Confirmar antes de sobrescribir el carrito al importar
 
-**Archivos:**
-- Migración SQL sobre la función RPC `cerrar_cuenta_coworking`
-- (Sin cambios de UI)
+**Archivos:** `src/components/caja/CoworkingSessionSelector.tsx`
 
-**Problema:** Al finalizar la sesión, la RPC sobreescribe `coworking_sessions.monto_acumulado` con `total_bruto`. Esto pierde el desglose original (tiempo vs. consumos vs. amenities) que se había ido acumulando durante la sesión. Aunque los detalles viven en `detalle_ventas`, los reportes históricos de "ingreso por sesión" se quedan sin la composición previa al cobro.
+**Problema:** `handleSelect` llama directo a `onImportSession()`, que reemplaza el array completo del carrito. Si el cajero tiene productos sueltos sin sesión activa, los pierde sin aviso.
 
-**Corrección (decisión doctrinal):**
-
-Dado que la doctrina del sistema dice que `detalle_ventas` es la fuente de verdad transaccional, mantenemos `monto_acumulado` como **monto cobrado final** (lo que ya hace la RPC), pero agregamos una nueva columna `monto_acumulado_preview` (numeric, nullable) que conserve el valor que tenía la sesión **justo antes** de finalizar.
-
-Pasos:
-1. **Migración:**
-   - `ALTER TABLE coworking_sessions ADD COLUMN monto_acumulado_preview numeric;`
-   - Modificar la RPC `cerrar_cuenta_coworking` para que, antes de sobrescribir `monto_acumulado`, copie su valor actual a `monto_acumulado_preview` en el mismo `UPDATE`.
-2. **Sin cambios de UI/cliente** en este sprint. La columna queda disponible para reportes futuros (Menu Engineering / Coworking Analysis) sin modificar el contrato actual.
-
-Esto preserva la trazabilidad histórica del importe acumulado preliminar sin alterar el flujo de cobro.
+**Corrección:**
+- Leer del store `useCartStore` el `items.length` y `coworkingSessionId` actuales.
+- Si `items.length > 0` y la sesión a importar es **distinta** a la `coworkingSessionId` actual, abrir un `AlertDialog` de confirmación con texto claro:
+  > "El carrito tiene N producto(s) sin guardar. Si importas esta sesión, el carrito actual se reemplazará. ¿Continuar?"
+- El `AlertDialog` reutiliza el patrón de `CajaCheckoutPanel` (mismo componente shadcn).
+- Si el carrito está vacío, o si la sesión a importar es la misma ya activa (caso "refrescar consumos"), no se interrumpe — se importa directo.
+- Acción confirmar → ejecuta el flujo actual de `handleSelect` (snapshot, cálculo de tiempo, líneas abiertas, etc.).
 
 ---
 
 ## Sección técnica (resumen)
 
-| # | Archivo / Objeto | Cambio | Riesgo |
+| # | Tipo | Archivo / Objeto | Riesgo |
 |---|---|---|---|
-| 1 | `CoworkingSessionSelector.tsx` (useEffect pendingSessionId) | Llamar `onPendingConsumed()` también cuando la sesión no existe | Bajo — solo limpia URL |
-| 2 | `CoworkingSessionSelector.tsx` (fetchSessions) | `try/catch/finally` + toast de error | Bajo — mejora robustez |
-| 3 | Migración + RPC `cerrar_cuenta_coworking` | Nueva columna `monto_acumulado_preview` + copia previa al overwrite | Bajo — campo aditivo, sin cambios de contrato |
+| 1 | Migración SQL | RPC `cancelar_sesion_coworking` (cambio de guarda) | Bajo — solo amplía estados permitidos |
+| 2 | UI | `CoworkingSessionSelector.tsx` (badge de monto) | Muy bajo — solo render |
+| 3 | UI/permiso | `CoworkingSessionSelector.tsx` (condicional sobre botón Ban) | Bajo — restringe, no expande |
+| 4 | UI | `CoworkingSessionSelector.tsx` (AlertDialog previo a import) | Bajo — agrega confirmación |
 
-## Validación post-cambio
+## Validación final
 
-- **Obs. 1:** Visitar `/caja?session=<id-inexistente>` → la URL se limpia sola en <1s, listado responde normal.
-- **Obs. 2:** Simular error (revocar permisos RLS temporalmente en consola) → aparece toast "No se pudieron cargar las sesiones" y el componente sale de "Cargando...".
-- **Obs. 3:** Crear sesión, agregar consumos, cobrar → consultar `SELECT monto_acumulado, monto_acumulado_preview FROM coworking_sessions WHERE id = '<id>'` y confirmar que `monto_acumulado_preview` conserva el valor anterior al cobro y `monto_acumulado` refleja el `total_bruto` final.
+1. **Admin** cancela sesión `pendiente_pago` desde Caja → éxito, sesión a `cancelado`, mermas correctas.
+2. **Supervisor/Caja** ve botón, abre dialog, envía solicitud → admin la aprueba → RPC ya no falla.
+3. **Barista** entra a `/caja` (caso extremo, normalmente no debería) → no ve el botón.
+4. Cada fila del listado muestra el monto acumulado con dos decimales.
+5. Carrito con productos sueltos + importar sesión → aparece AlertDialog; cancelar conserva carrito, confirmar lo reemplaza.
 
 ## Fuera de alcance
 
-- No se tocan cálculos de tarifa, IVA, propina ni descuentos (ya validados en el sprint anterior).
-- No se modifica `CajaCheckoutPanel`, `ConfirmVentaDialog` ni el carrito.
-- No se cambian políticas RLS ni roles.
+- No se altera la lógica de cálculo de tiempo/excedente/IVA/propina (intacta del sprint anterior).
+- No se cambia el flujo de cobro (`cerrar_cuenta_coworking`).
+- No se modifican políticas RLS.
+- No se persisten cambios al diseño visual general más allá del badge y el dialog.
