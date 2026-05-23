@@ -129,9 +129,9 @@ export function ProductGrid({ onAdd }: Props) {
   }, [updateScrollState]);
 
   useEffect(() => {
-    if (categoriaActiva && activeBadgeRef.current) {
-      activeBadgeRef.current.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
-    }
+    if (!categoriaActiva || !scrollRef.current) return;
+    const el = scrollRef.current.querySelector<HTMLElement>(`[data-cat="${CSS.escape(categoriaActiva)}"]`);
+    el?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
   }, [categoriaActiva]);
 
   const scrollByAmount = (dir: 1 | -1) => {
