@@ -634,31 +634,14 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
                     </div>
 
 
-                    {/* Buscador de opciones */}
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Buscar producto para agregar..."
-                        value={g._search ?? ''}
-                        onChange={e => updateGrupo(gi, { _search: e.target.value })}
-                        className="pl-9"
-                      />
-                      {sugerencias.length > 0 && (
-                        <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-popover border rounded-md shadow-md max-h-56 overflow-y-auto">
-                          {sugerencias.map(p => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => addOpcion(gi, p.id)}
-                              className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between"
-                            >
-                              <span>{p.nombre}</span>
-                              <span className="text-xs text-muted-foreground">{p.categoria}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <OpcionPicker
+                      search={g._search ?? ''}
+                      onSearchChange={(v) => updateGrupo(gi, { _search: v })}
+                      productosSimples={productosSimples}
+                      excludeIds={g.opciones.map(o => o.producto_id)}
+                      onPick={(id) => addOpcion(gi, id)}
+                    />
+
 
                     {/* Lista de opciones */}
                     {g.opciones.length === 0 ? (
