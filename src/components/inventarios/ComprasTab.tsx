@@ -108,58 +108,79 @@ const ComprasTab = ({ isAdmin }: Props) => {
 
   const fetchData = async () => {
     setLoading(true);
-    const from = (page - 1) * porPagina;
-    const to = from + porPagina - 1;
+    try {
+      const from = (page - 1) * porPagina;
+      const to = from + porPagina - 1;
 
-    let comprasQuery = supabase
-      .from('compras_insumos')
-      .select('*', { count: 'exact' })
-      .order('fecha', { ascending: false })
-      .range(from, to);
+      let comprasQuery = supabase
+        .from('compras_insumos')
+        .select('*', { count: 'exact' })
+        .eq('tipo', 'compra')
+        .order('fecha', { ascending: false })
+        .range(from, to);
 
-    if (fechaDesde) {
-      comprasQuery = comprasQuery.gte('fecha', `${fechaDesde}T00:00:00-06:00`);
-    }
-    if (fechaHasta) {
-      comprasQuery = comprasQuery.lte('fecha', `${fechaHasta}T23:59:59-06:00`);
-    }
-
-    const [insumosRes, comprasRes] = await Promise.all([
-      supabase.from('insumos').select('id, nombre, unidad_medida, presentacion, costo_presentacion, cantidad_por_presentacion, stock_actual').order('nombre'),
-      comprasQuery,
-    ]);
-
-    if (insumosRes.data) setInsumos(insumosRes.data);
-    setTotalCount(comprasRes.count ?? 0);
-
-    if (comprasRes.data && insumosRes.data) {
-      const insumoMap = new Map(insumosRes.data.map((i) => [i.id, i.nombre]));
-      const userIds = [...new Set(comprasRes.data.map((c) => c.usuario_id))];
-      
-      let profileMap = new Map<string, string>();
-      if (userIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, nombre')
-          .in('id', userIds);
-        if (profiles) {
-          profileMap = new Map(profiles.map((p) => [p.id, p.nombre]));
-        }
+      if (fechaDesde) {
+        comprasQuery = comprasQuery.gte('fecha', `${fechaDesde}T00:00:00-06:00`);
+      }
+      if (fechaHasta) {
+        comprasQuery = comprasQuery.lte('fecha', `${fechaHasta}T23:59:59-06:00`);
       }
 
-      setCompras(
-        comprasRes.data.map((c) => ({
-          ...c,
-          insumo_nombre: insumoMap.get(c.insumo_id) || 'Desconocido',
-          usuario_nombre: profileMap.get(c.usuario_id) || 'Desconocido',
-        }))
-      );
+      const [insumosRes, comprasRes] = await Promise.all([
+        supabase.from('insumos').select('id, nombre, unidad_medida, presentacion, costo_presentacion, cantidad_por_presentacion, stock_actual').order('nombre'),
+        comprasQuery,
+      ]);
+
+      if (insumosRes.error) throw insumosRes.error;
+      if (comprasRes.error) throw comprasRes.error;
+
+      if (insumosRes.data) setInsumos(insumosRes.data);
+      setTotalCount(comprasRes.count ?? 0);
+
+      if (comprasRes.data && insumosRes.data) {
+        const insumoMap = new Map(insumosRes.data.map((i) => [i.id, i.nombre]));
+        const userIds = [...new Set(comprasRes.data.map((c) => c.usuario_id))];
+
+        let profileMap = new Map<string, string>();
+        if (userIds.length > 0) {
+          const { data: profiles, error: profErr } = await supabase
+            .from('profiles')
+            .select('id, nombre')
+            .in('id', userIds);
+          if (profErr) throw profErr;
+          if (profiles) {
+            profileMap = new Map(profiles.map((p) => [p.id, p.nombre]));
+          }
+        }
+
+        setCompras(
+          comprasRes.data.map((c) => ({
+            ...c,
+            insumo_nombre: insumoMap.get(c.insumo_id) || 'Desconocido',
+            usuario_nombre: profileMap.get(c.usuario_id) || 'Desconocido',
+          }))
+        );
+      }
+    } catch (err: any) {
+      toast.error('No se pudieron cargar las compras: ' + (err?.message || 'error desconocido'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, porPagina, fechaDesde, fechaHasta]);
+
+  // Realtime: refrescar cuando otro usuario registre/anule compras o cambien insumos
+  useEffect(() => {
+    const channel = supabase
+      .channel('inv-compras-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'compras_insumos' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insumos' }, () => fetchData())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, porPagina, fechaDesde, fechaHasta]);
 
