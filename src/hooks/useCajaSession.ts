@@ -122,6 +122,18 @@ export function useCajaSession() {
     return { error: null, pending: !!result.pending, umbral: result.umbral };
   };
 
+  const reversarMovimiento = async (movimientoId: string, motivo: string) => {
+    const { error } = await supabase.rpc('reversar_movimiento_caja' as any, {
+      p_movimiento_id: movimientoId,
+      p_motivo: motivo,
+    });
+    if (error) return { error: error.message };
+    await fetchCaja();
+    return { error: null };
+  };
+
+
+
 
   const cerrarCaja = async (montoCierre: number, notasCierre?: string) => {
     if (!user || !cajaAbierta) return { error: 'No hay caja abierta' };
