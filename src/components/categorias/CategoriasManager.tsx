@@ -413,17 +413,7 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar categoría</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteTarget && ((deleteTarget.ambito === 'insumo' ? deleteTarget.uso_insumos : deleteTarget.uso_productos) ?? 0) > 0 ? (
-                <>
-                  La categoría <strong>"{deleteTarget.nombre}"</strong> ({AMBITO_LABEL[deleteTarget.ambito]}) está en uso por{' '}
-                  {deleteTarget.ambito === 'insumo'
-                    ? `${deleteTarget.uso_insumos} insumo(s)`
-                    : `${deleteTarget.uso_productos} producto(s)`}.
-                  Quedarán con el texto "{deleteTarget.nombre}" como categoría huérfana hasta reasignarse manualmente. ¿Continuar?
-                </>
-              ) : (
-                <>¿Eliminar la categoría "{deleteTarget?.nombre}"? Esta acción no se puede deshacer.</>
-              )}
+              ¿Eliminar la categoría "{deleteTarget?.nombre}"? Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
