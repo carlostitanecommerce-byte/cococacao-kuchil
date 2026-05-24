@@ -1279,6 +1279,7 @@ export type Database = {
           monto_tarjeta: number
           monto_transferencia: number
           motivo_cancelacion: string | null
+          plataforma_id: string | null
           tipo_consumo: Database["public"]["Enums"]["tipo_consumo"]
           total_bruto: number
           total_neto: number
@@ -1301,6 +1302,7 @@ export type Database = {
           monto_tarjeta?: number
           monto_transferencia?: number
           motivo_cancelacion?: string | null
+          plataforma_id?: string | null
           tipo_consumo?: Database["public"]["Enums"]["tipo_consumo"]
           total_bruto?: number
           total_neto?: number
@@ -1323,6 +1325,7 @@ export type Database = {
           monto_tarjeta?: number
           monto_transferencia?: number
           motivo_cancelacion?: string | null
+          plataforma_id?: string | null
           tipo_consumo?: Database["public"]["Enums"]["tipo_consumo"]
           total_bruto?: number
           total_neto?: number
@@ -1342,6 +1345,13 @@ export type Database = {
             columns: ["coworking_session_id"]
             isOneToOne: false
             referencedRelation: "coworking_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ventas_plataforma_id_fkey"
+            columns: ["plataforma_id"]
+            isOneToOne: false
+            referencedRelation: "plataformas_delivery"
             referencedColumns: ["id"]
           },
         ]

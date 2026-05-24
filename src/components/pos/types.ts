@@ -64,4 +64,6 @@ export interface VentaSummary {
   usuario_nombre?: string;
   fecha?: string;
   folio?: number;
+  /** Solo presente si tipo_consumo === 'delivery'. FK a plataformas_delivery. */
+  plataforma_id?: string;
 }
