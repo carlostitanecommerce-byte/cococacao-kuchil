@@ -182,7 +182,10 @@ export function CajaCheckoutPanel() {
       toast.error(`El monto de tarjeta debe cubrir al menos la propina digital ($${propina.toFixed(2)}).`);
       return;
     }
-
+    if (tipoConsumo === 'delivery' && !plataformaId) {
+      toast.error('Selecciona la plataforma de delivery');
+      return;
+    }
 
     const ventaSummary: VentaSummary = {
       items,
@@ -197,6 +200,7 @@ export function CajaCheckoutPanel() {
       propina_en_digital: propinaEnDigital,
       coworking_session_id: coworkingSessionId ?? undefined,
       caja_id: cajaAbierta.id,
+      plataforma_id: tipoConsumo === 'delivery' ? plataformaId ?? undefined : undefined,
     };
     setSummary(ventaSummary);
   };
