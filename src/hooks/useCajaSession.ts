@@ -132,34 +132,19 @@ export function useCajaSession() {
   const cerrarCaja = async (montoCierre: number, notasCierre?: string) => {
     if (!user || !cajaAbierta) return { error: 'No hay caja abierta' };
 
-    // Calculate expected cash
-    const fechaCierreNow = nowCDMX();
-    const ventasEfectivo = await getVentasEfectivo(cajaAbierta.id, cajaAbierta.fecha_apertura, fechaCierreNow);
-    const totalEntradas = movimientos.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.monto, 0);
-    const totalSalidas = movimientos.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
-    const esperado = cajaAbierta.monto_apertura + ventasEfectivo + totalEntradas - totalSalidas;
-    const diferencia = montoCierre - esperado;
-
-    const { error } = await supabase.from('cajas').update({
-      estado: 'cerrada' as any,
-      monto_cierre: montoCierre,
-      fecha_cierre: nowCDMX(),
-      diferencia,
-      notas_cierre: notasCierre || null,
-    } as any).eq('id', cajaAbierta.id);
+    const { data, error } = await supabase.rpc('cerrar_caja' as any, {
+      p_caja_id: cajaAbierta.id,
+      p_monto_cierre: montoCierre,
+      p_notas_cierre: notasCierre ?? null,
+    });
 
     if (error) return { error: error.message };
 
-    await supabase.from('audit_logs').insert({
-      user_id: user.id,
-      accion: 'cierre_caja',
-      descripcion: `Cierre de caja. Esperado: $${esperado.toFixed(2)}, Contado: $${montoCierre.toFixed(2)}, Diferencia: $${diferencia.toFixed(2)}${notasCierre ? ` | Notas: ${notasCierre}` : ''}`,
-      metadata: { caja_id: cajaAbierta.id, monto_cierre: montoCierre, esperado, diferencia, notas_cierre: notasCierre || null },
-    });
-
+    const result = data as { ok: boolean; esperado: number; diferencia: number };
     await fetchCaja();
-    return { error: null, esperado, diferencia };
+    return { error: null, esperado: result.esperado, diferencia: result.diferencia };
   };
+
 
   return { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, cerrarCaja, refetch: fetchCaja };
 }
