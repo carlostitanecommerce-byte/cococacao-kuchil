@@ -654,6 +654,17 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
+              ) : fetchError ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <div className="flex flex-col items-center gap-3 text-sm">
+                      <AlertTriangle className="h-6 w-6 text-destructive" />
+                      <div className="text-muted-foreground">No se pudieron cargar los productos.</div>
+                      <div className="text-xs text-muted-foreground/80 max-w-md">{fetchError}</div>
+                      <Button size="sm" variant="outline" onClick={fetchProductos}>Reintentar</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ) : filtrados.length === 0 ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados para la búsqueda' : 'Sin productos registrados'}</TableCell></TableRow>
               ) : productosPagina.map(p => (
