@@ -298,7 +298,7 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
               <SelectTrigger className="w-44"><SelectValue placeholder="Tipo" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">Todos los tipos</SelectItem>
-                <SelectItem value="producto">Producto individual</SelectItem>
+                <SelectItem value="simple">Producto individual</SelectItem>
                 <SelectItem value="paquete">Paquete / Combo</SelectItem>
               </SelectContent>
             </Select>
