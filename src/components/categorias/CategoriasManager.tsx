@@ -190,6 +190,13 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    const usoActual = deleteTarget.ambito === 'insumo' ? (deleteTarget.uso_insumos ?? 0) : (deleteTarget.uso_productos ?? 0);
+    if (usoActual > 0) {
+      toast.error('No se puede eliminar: la categoría está en uso');
+      setDeleteTarget(null);
+      fetchCategorias();
+      return;
+    }
     const { error } = await supabase.from('categorias_maestras').delete().eq('id', deleteTarget.id);
     if (error) {
       toast.error('Error al eliminar categoría');
