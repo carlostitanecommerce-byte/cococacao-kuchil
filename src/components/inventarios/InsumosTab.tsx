@@ -69,16 +69,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Insumo | null>(null);
-  // Ajuste manual de stock requiere motivo (RPC ajustar_stock_insumo)
-  const [stockMotivoOpen, setStockMotivoOpen] = useState(false);
-  const [stockMotivo, setStockMotivo] = useState('');
-  const [pendingStockChange, setPendingStockChange] = useState<{
-    insumoId: string;
-    nombre: string;
-    stockPrev: number;
-    stockNuevo: number;
-    payloadRestante: Record<string, any>;
-  } | null>(null);
+  // Stock en edición es read-only. Se ajusta vía Compras o Reportes (auditoría).
 
   // Filtros
   const [busqueda, setBusqueda] = useState('');
