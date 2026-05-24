@@ -413,6 +413,10 @@ const PosPage = () => {
   };
 
 
+  const checkoutLabel = isOpenAccount ? 'Cargar a Cuenta' : 'Procesar pago en Caja';
+  const checkoutLabelMobile = isOpenAccount ? 'Cargar a Cuenta' : 'Cobrar';
+  const CheckoutIcon = isOpenAccount ? ClipboardCheck : ArrowRight;
+
   const paqueteDialog = (
     <PaqueteSelectorDialog
       open={!!paqueteCtx}
@@ -421,6 +425,53 @@ const PosPage = () => {
       onConfirm={handlePaqueteConfirm}
     />
   );
+
+  const parkDialog = (
+    <Dialog open={parkDialogOpen} onOpenChange={(o) => { if (!parking) setParkDialogOpen(o); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Inbox className="h-5 w-5 text-primary" />
+            Enviar orden a Caja
+          </DialogTitle>
+          <DialogDescription>
+            Caja tiene órdenes pendientes de cobro. Esta orden se enviará a la cola
+            para no sobrescribir el ticket activo.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="cliente-ref" className="text-sm">
+            Nombre o referencia (opcional)
+          </Label>
+          <Input
+            id="cliente-ref"
+            value={clienteRef}
+            onChange={(e) => setClienteRef(e.target.value.slice(0, 60))}
+            placeholder="Ej: Mesa 3, Juan, Para llevar..."
+            maxLength={60}
+            autoFocus
+            disabled={parking}
+          />
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Total: ${subtotal.toFixed(2)} · {items.reduce((s, i) => s + i.cantidad, 0)} producto(s)
+          </p>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setParkDialogOpen(false)}
+            disabled={parking}
+          >
+            Cancelar
+          </Button>
+          <Button onClick={parkOrder} disabled={parking}>
+            {parking ? 'Enviando...' : 'Enviar a Caja'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
 
   if (isDesktop) {
     return (
