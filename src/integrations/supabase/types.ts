@@ -651,6 +651,8 @@ export type Database = {
           id: string
           monto: number
           motivo: string
+          motivo_reverso: string | null
+          reversa_de: string | null
           tipo: string
           usuario_id: string
         }
@@ -660,6 +662,8 @@ export type Database = {
           id?: string
           monto?: number
           motivo: string
+          motivo_reverso?: string | null
+          reversa_de?: string | null
           tipo: string
           usuario_id: string
         }
@@ -669,6 +673,8 @@ export type Database = {
           id?: string
           monto?: number
           motivo?: string
+          motivo_reverso?: string | null
+          reversa_de?: string | null
           tipo?: string
           usuario_id?: string
         }
@@ -678,6 +684,13 @@ export type Database = {
             columns: ["caja_id"]
             isOneToOne: false
             referencedRelation: "cajas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "movimientos_caja_reversa_de_fkey"
+            columns: ["reversa_de"]
+            isOneToOne: false
+            referencedRelation: "movimientos_caja"
             referencedColumns: ["id"]
           },
         ]
@@ -1456,6 +1469,10 @@ export type Database = {
       }
       resolver_cancelacion_item_sesion: {
         Args: { p_cancelacion_id: string; p_decision: string; p_notas?: string }
+        Returns: Json
+      }
+      reversar_movimiento_caja: {
+        Args: { p_motivo: string; p_movimiento_id: string }
         Returns: Json
       }
       revertir_stock_venta: { Args: { _venta_id: string }; Returns: undefined }
