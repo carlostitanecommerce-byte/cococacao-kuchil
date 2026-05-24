@@ -146,7 +146,14 @@ export function CajaCheckoutPanel() {
 
   const handleTipoConsumoChange = (v: TipoConsumo) => {
     setTipoConsumo(v);
-    if (v !== 'delivery') setPlataformaId(null);
+    if (v !== 'delivery') {
+      setPlataformaId(null);
+    } else {
+      // Delivery siempre se liquida por transferencia desde la plataforma.
+      setMetodoPago('transferencia');
+      setMixed({ efectivo: 0, tarjeta: 0, transferencia: 0 });
+      setPropinaEnDigital(false);
+    }
   };
 
   const isReadOnlyLine = (item: CartItem) =>
@@ -375,8 +382,17 @@ export function CajaCheckoutPanel() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Método de pago</Label>
-              <Select value={metodoPago} onValueChange={(v) => handleMetodoPagoChange(v as MetodoPago)}>
+              <Label className="text-xs flex items-center gap-1">
+                Método de pago
+                {tipoConsumo === 'delivery' && (
+                  <Lock className="h-3 w-3 text-muted-foreground" />
+                )}
+              </Label>
+              <Select
+                value={metodoPago}
+                onValueChange={(v) => handleMetodoPagoChange(v as MetodoPago)}
+                disabled={tipoConsumo === 'delivery'}
+              >
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="efectivo">Efectivo</SelectItem>
@@ -385,6 +401,11 @@ export function CajaCheckoutPanel() {
                   <SelectItem value="mixto">Mixto</SelectItem>
                 </SelectContent>
               </Select>
+              {tipoConsumo === 'delivery' && (
+                <p className="text-[10px] text-muted-foreground">
+                  Fijo en transferencia: la plataforma liquida vía depósito.
+                </p>
+              )}
             </div>
           </div>
 
