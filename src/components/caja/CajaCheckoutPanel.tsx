@@ -504,8 +504,18 @@ export function CajaCheckoutPanel() {
 
           <Separator />
 
+          {deliveryOverrideActive && (
+            <p className="text-[11px] text-primary flex items-center gap-1">
+              <Info className="h-3 w-3" />
+              Precios ajustados para {plataformaNombre}
+            </p>
+          )}
+
           {/* Totales */}
           <div className="space-y-1 text-sm">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
+            </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
             </div>
