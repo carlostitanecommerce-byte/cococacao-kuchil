@@ -276,18 +276,38 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
         </DialogHeader>
 
         <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto">
-          {sesionesActivas.length > 0 && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs space-y-1">
-              <p className="font-semibold text-destructive">⚠️ {sesionesActivas.length} sesión(es) de coworking sin cobrar</p>
+          {pendientesPago.length > 0 && (
+            <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-xs space-y-1">
+              <p className="font-semibold text-destructive flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {pendientesPago.length} sesión(es) en cobro pendiente
+              </p>
               <ul className="text-muted-foreground list-disc list-inside">
-                {sesionesActivas.slice(0, 5).map(s => (
+                {pendientesPago.slice(0, 5).map(s => (
                   <li key={s.id}>{s.cliente_nombre}</li>
                 ))}
-                {sesionesActivas.length > 5 && <li>…y {sesionesActivas.length - 5} más</li>}
+                {pendientesPago.length > 5 && <li>…y {pendientesPago.length - 5} más</li>}
               </ul>
-              <p className="text-muted-foreground">Si cierras ahora, quedarán pendientes para el siguiente turno.</p>
+              {bloqueadoPorPendientes ? (
+                <p className="text-destructive">Estas sesiones ya consumieron. Cóbralas antes de cerrar o pide a un administrador.</p>
+              ) : (
+                <p className="text-muted-foreground">Como administrador puedes cerrar, pero las notas serán obligatorias.</p>
+              )}
             </div>
           )}
+          {activasSinCobro.length > 0 && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs space-y-1">
+              <p className="font-semibold text-amber-700">⚠️ {activasSinCobro.length} sesión(es) de coworking activas</p>
+              <ul className="text-muted-foreground list-disc list-inside">
+                {activasSinCobro.slice(0, 5).map(s => (
+                  <li key={s.id}>{s.cliente_nombre}</li>
+                ))}
+                {activasSinCobro.length > 5 && <li>…y {activasSinCobro.length - 5} más</li>}
+              </ul>
+              <p className="text-muted-foreground">Continuarán abiertas en el siguiente turno.</p>
+            </div>
+          )}
+
           <div className="space-y-1">
             <p className="font-semibold text-xs uppercase text-muted-foreground">Movimientos de caja</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
