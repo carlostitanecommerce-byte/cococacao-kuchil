@@ -379,10 +379,11 @@ const PosPage = () => {
       setClienteRef('');
       setParkDialogOpen(false);
       setTicketOpen(false);
+      navigate('/caja');
     } finally {
       setParking(false);
     }
-  }, [user?.id, items, subtotal, clienteRef, clear]);
+  }, [user?.id, items, subtotal, clienteRef, clear, navigate]);
 
   const goToCheckout = async () => {
     if (isOpenAccount) {
