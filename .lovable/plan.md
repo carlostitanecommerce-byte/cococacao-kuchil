@@ -1,73 +1,49 @@
-## Plan de remediación: stock, RLS y reintegro de upsells
+## Verificación
 
-Objetivo: blindar los ajustes de inventario en `insumos`, garantizar trazabilidad atómica y cerrar el hueco de reintegro de stock cuando se cancelan upsells de coworking con `venta_id IS NULL`.
+Las 3 observaciones son **ciertas**:
 
----
-
-### 1. RPC atómica para ajuste manual de stock
-
-Crear `ajustar_stock_insumo(_insumo_id uuid, _nuevo_stock numeric, _motivo text)`:
-- `SECURITY DEFINER`, `SET search_path = public`.
-- Valida que el llamador tenga rol `administrador` (vía `has_role`).
-- Valida `_nuevo_stock >= 0` y que `_motivo` no esté vacío.
-- En una sola transacción:
-  1. Lee `stock_actual` previo con `FOR UPDATE`.
-  2. Si no hay cambio, retorna sin tocar nada.
-  3. Actualiza `stock_actual` y `updated_at`.
-  4. Inserta `audit_logs` con acción `ajuste_manual_stock_insumo`, descripción legible y metadata (`insumo_id`, `stock_anterior`, `stock_nuevo`, `diferencia`, `motivo`).
-- `REVOKE ALL FROM PUBLIC` y `GRANT EXECUTE TO authenticated`.
-
-### 2. Bloquear edición directa de columnas sensibles en `insumos`
-
-Trigger `BEFORE UPDATE ON public.insumos` (`SECURITY DEFINER`) que rechace cambios a `stock_actual` y `costo_unitario` cuando provengan de una sesión de cliente:
-- Permite el cambio si `current_setting('app.bypass_insumo_guard', true) = 'on'` (lo establecen las RPCs internas: `ajustar_stock_insumo`, `revertir_stock_venta`, `aplicar_compra_insumo`, `reintegrar_inventario_cancelacion`, trigger de mermas/compras).
-- En cualquier otro caso, lanza `RAISE EXCEPTION 'stock_actual/costo_unitario solo se modifican vía RPC'`.
-- Las RPCs existentes que tocan estas columnas se actualizan para hacer `PERFORM set_config('app.bypass_insumo_guard','on', true)` al inicio.
-
-Con esto la policy `FOR ALL` puede quedarse (admins siguen pudiendo cambiar `nombre`, `categoria`, `stock_minimo`, `presentacion`, etc.), pero los campos críticos quedan canalizados a RPC.
-
-### 3. Reintegro de upsells de coworking al cancelar sesión
-
-Modificar la RPC `cancelar_sesion_coworking` (o el path donde hoy procesa `items_entregados`):
-- Para cada `detalle_ventas` ligado a la sesión con `venta_id IS NULL` y `tipo_concepto = 'producto'`:
-  - Si **no** está en la lista de entregados → reintegrar stock vía recetas (mismo cálculo que `reintegrar_inventario_cancelacion`) usando `set_config('app.bypass_insumo_guard','on',true)`.
-  - Si está en entregados parcial → reintegrar la diferencia y registrar la cantidad entregada como merma (ya existe esa lógica para amenities).
-- Eliminar/marcar como canceladas las líneas de `detalle_ventas` reintegradas (mantener registro vía `audit_logs` con detalle JSON).
-- Audit log enriquecido con `lineas_reintegradas`, `cantidad_total`, `insumos_afectados`.
-
-Adicionalmente, extender `reintegrar_inventario_cancelacion` (trigger de `ventas`) para que, antes de su `FOR d IN ... WHERE venta_id = NEW.id`, también barra líneas con `coworking_session_id = NEW.coworking_session_id AND venta_id IS NULL` que pudieran reabrirse por el flujo de reversión de venta de coworking. Esto cubre el caso edge: venta cobrada → revertida a `pendiente_pago` (los upsells vuelven a `venta_id NULL`) → la sesión termina cancelándose.
-
-### 4. Frontend: usar la nueva RPC
-
-`InsumosTab.tsx` (`handleSave`):
-- Separar el flujo: si `editingId` y cambió `stock_actual`, primero llamar `supabase.rpc('ajustar_stock_insumo', { _insumo_id, _nuevo_stock, _motivo })` y, si tiene éxito, hacer el `update` sin `stock_actual`.
-- Quitar los `audit_logs.insert` redundantes (los hace la RPC).
-- Mostrar diálogo pidiendo motivo cuando el usuario edite el campo de stock (obligatorio para la RPC).
-- Si `costo_unitario` cambia, igual: nueva RPC `ajustar_costo_insumo(_insumo_id, _nuevo_costo, _motivo)` siguiendo el mismo patrón (el cambio de costo dispara recalculo de márgenes que ya existe).
-
-### 5. Verificación
-
-- Linter Supabase tras la migración.
-- Pruebas manuales:
-  1. Editar stock como admin desde UI → requiere motivo, queda audit, stock cambia.
-  2. Intento de `UPDATE insumos SET stock_actual = 999` directo (simulado vía `supabase.from('insumos').update`) → debe fallar con el mensaje del trigger.
-  3. Sesión coworking con upsells (no entregados) → cancelar → stock reintegrado correctamente.
-  4. Venta coworking cobrada → revertir a `pendiente_pago` → cancelar sesión sin marcar entregas → stock reintegrado.
+1. **Realtime ausente en ComprasTab/MermasTab** — Solo `InsumosTab` y `ProductosTab` se suscriben a `postgres_changes`. `ComprasTab` y `MermasTab` usan `fetchData()` manual en `useEffect([])`, así que dos usuarios simultáneos quedan desincronizados hasta refrescar.
+2. **Auditoría física sin "entrada por ajuste"** — En `aplicar_auditoria_inventario` (migración `20260427011049`), si `v_diferencia > 0` solo actualiza `stock_actual` y deja un `audit_log`, pero **no inserta ningún movimiento positivo** (no existe tabla de entradas por ajuste ni inserción en `compras_insumos`). La diferencia positiva queda sin contrapartida cuantitativa, solo en bitácora.
+3. **`fetchInsumos` ignora `error`** — `const { data } = await supabase.from('insumos').select(...)`; no se desestructura `error` ni se muestra toast. Mismo patrón en `ComprasTab`, `MermasTab` y otros.
 
 ---
 
-### Detalle técnico
+## Plan de remediación
 
-```text
-Migración 1: trigger guard + RPC ajuste stock + RPC ajuste costo
-Migración 2: extender reintegrar_inventario_cancelacion + cancelar_sesion_coworking
-Frontend:   src/components/inventarios/InsumosTab.tsx (handleSave + diálogo motivo)
-```
+### 1. Realtime en ComprasTab y MermasTab
+Replicar el patrón de `InsumosTab` en ambos componentes:
 
-Archivos a tocar:
-- `supabase/migrations/<timestamp>_insumos_guard_and_rpcs.sql`
-- `supabase/migrations/<timestamp>_reintegro_upsells_coworking.sql`
-- `src/components/inventarios/InsumosTab.tsx`
-- (opcional) pequeño componente `AjusteStockMotivoDialog` para capturar el motivo.
+- `ComprasTab.tsx`: añadir `useEffect` con canal `inv-compras-realtime` suscrito a `postgres_changes` sobre `compras_insumos` (event `*`) que dispare `fetchData()`. También suscribir a `insumos` para refrescar el selector de insumos cuando cambien costos/nombres.
+- `MermasTab.tsx`: canal `inv-mermas-realtime` sobre `mermas` (event `*`) → `fetchData()`. Suscribir también a `insumos` para mantener el selector y los nombres consistentes.
+- Cleanup con `supabase.removeChannel(channel)` en el retorno del `useEffect`.
 
-No requiere cambios en `types.ts` (lo regenera Supabase).
+### 2. Registrar entradas por ajuste positivo en auditoría física
+Nueva migración que reemplaza `aplicar_auditoria_inventario`:
+
+- Cuando `v_diferencia > 0`, insertar fila en `compras_insumos` como entrada por ajuste:
+  - `insumo_id = v_insumo_id`
+  - `cantidad_unidades = v_diferencia` (en unidad base)
+  - `cantidad_presentaciones = 0`, `costo_presentacion = 0`, `costo_total = 0` (no afecta costo promedio, es solo regularización)
+  - `nota = 'Entrada por ajuste de auditoría física'`
+  - `usuario_id = v_user`
+- Para no contaminar el cálculo de costo promedio del trigger de compras, marcar la fila con una nota especial **o** preferiblemente crear columna `tipo` (`'compra' | 'ajuste_positivo'`) en `compras_insumos` y excluir `'ajuste_positivo'` del recálculo de costo. Decisión: añadir columna `tipo TEXT NOT NULL DEFAULT 'compra'` y actualizar el trigger de recálculo de costo para filtrar `WHERE tipo = 'compra'`.
+- Mantener el `audit_logs` ya existente para trazabilidad.
+- Mantener `mermas` solo para diferencias negativas (sin cambio).
+
+Esto cierra la trazabilidad: toda variación de stock tiene un evento cuantitativo (compra, merma o ajuste positivo) además de la bitácora.
+
+### 3. Manejo de errores en fetchers
+- `InsumosTab.fetchInsumos`: desestructurar `{ data, error }`, si `error` mostrar `toast.error('No se pudieron cargar los insumos: ' + error.message)` y dejar el estado previo (no vaciar con `[]` salvo primera carga).
+- Mismo patrón en `ComprasTab.fetchData` y `MermasTab.fetchData` (revisar ambos y aplicar el mismo manejo).
+- Asegurar `setLoading(false)` en `finally`.
+
+### Archivos afectados
+- `src/components/inventarios/InsumosTab.tsx` (manejo de error)
+- `src/components/inventarios/ComprasTab.tsx` (realtime + error)
+- `src/components/inventarios/MermasTab.tsx` (realtime + error)
+- Nueva migración SQL:
+  - `ALTER TABLE compras_insumos ADD COLUMN tipo TEXT NOT NULL DEFAULT 'compra'`
+  - Actualizar trigger de recálculo de costo promedio para `WHERE tipo = 'compra'`
+  - `CREATE OR REPLACE FUNCTION aplicar_auditoria_inventario` con la rama positiva insertando en `compras_insumos` con `tipo='ajuste_positivo'`
+
+Sin cambios en `types.ts` manuales (se regeneran tras la migración).
