@@ -10,6 +10,7 @@ const ensureLineId = (i: CartItem): CartItem =>
 interface CartState {
   items: CartItem[];
   coworkingSessionId: string | null;
+  ordenPendienteId: string | null;
   clienteNombre: string | null;
   ownerUserId: string | null;
   /** Mapa producto_id → precio especial proveniente de tarifa_upsells de la sesión activa. */
@@ -24,7 +25,9 @@ interface CartState {
   removeItem: (key: string) => void;
   clear: () => void;
   importCoworkingSession: (items: CartItem[], sessionId: string, clienteNombre: string) => void;
+  importOrdenPendiente: (items: CartItem[], ordenId: string, clienteNombre: string | null) => void;
   setActiveCoworkingSession: (sessionId: string | null, clienteNombre: string | null) => void;
+  setOrdenPendienteId: (id: string | null) => void;
   setTarifaUpsells: (map: Record<string, number>) => void;
 }
 
