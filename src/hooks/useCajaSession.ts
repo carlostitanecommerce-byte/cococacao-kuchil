@@ -107,27 +107,18 @@ export function useCajaSession() {
   };
 
   const registrarMovimiento = async (tipo: 'entrada' | 'salida', monto: number, motivo: string) => {
-    if (!user || !cajaAbierta) return { error: 'No hay caja abierta' };
-    const { error } = await supabase.from('movimientos_caja').insert({
-      caja_id: cajaAbierta.id,
-      usuario_id: user.id,
-      tipo,
-      monto,
-      motivo,
-    } as any);
-
-    if (error) return { error: error.message };
-
-    await supabase.from('audit_logs').insert({
-      user_id: user.id,
-      accion: tipo === 'entrada' ? 'entrada_caja' : 'salida_caja',
-      descripcion: `${tipo === 'entrada' ? 'Entrada' : 'Salida'} de caja: $${monto.toFixed(2)} - ${motivo}`,
-      metadata: { caja_id: cajaAbierta.id, tipo, monto, motivo },
+    if (!user || !cajaAbierta) return { error: 'No hay caja abierta', pending: false };
+    const { data, error } = await supabase.rpc('registrar_movimiento_caja' as any, {
+      p_tipo: tipo,
+      p_monto: monto,
+      p_motivo: motivo,
     });
-
+    if (error) return { error: error.message, pending: false };
+    const result = data as { ok: boolean; pending: boolean; umbral?: number };
     await fetchCaja();
-    return { error: null };
+    return { error: null, pending: !!result.pending, umbral: result.umbral };
   };
+
 
   const cerrarCaja = async (montoCierre: number, notasCierre?: string) => {
     if (!user || !cajaAbierta) return { error: 'No hay caja abierta' };
