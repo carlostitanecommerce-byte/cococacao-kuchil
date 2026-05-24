@@ -97,17 +97,29 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     await supabase.storage.from('productos').remove(paths);
   };
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   const fetchProductos = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('productos').select('*').eq('tipo', 'simple').order('nombre');
-    setProductos((data as Producto[]) ?? []);
+    const { data, error } = await supabase.from('productos').select('*').eq('tipo', 'simple').order('nombre');
+    if (error) {
+      setFetchError(error.message);
+      setProductos([]);
+      toast.error('No se pudieron cargar los productos');
+    } else {
+      setFetchError(null);
+      setProductos((data as Producto[]) ?? []);
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => {
     fetchProductos();
     supabase.from('insumos').select('id, nombre, unidad_medida, costo_unitario').order('nombre')
-      .then(({ data }) => setInsumos((data as Insumo[]) ?? []));
+      .then(({ data, error }) => {
+        if (error) toast.error('No se pudieron cargar los insumos');
+        else setInsumos((data as Insumo[]) ?? []);
+      });
   }, [fetchProductos]);
 
   // M5: Realtime — productos (cambios de costo/margen vía trigger), recetas e insumos
