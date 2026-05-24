@@ -23,7 +23,10 @@ export interface MovimientoCaja {
   monto: number;
   motivo: string;
   created_at: string;
+  reversa_de: string | null;
+  motivo_reverso: string | null;
 }
+
 
 export function useCajaSession() {
   const { user } = useAuth();
