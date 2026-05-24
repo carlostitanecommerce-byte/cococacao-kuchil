@@ -215,6 +215,7 @@ export type Database = {
           insumo_id: string
           motivo_anulacion: string | null
           nota: string | null
+          tipo: string
           usuario_id: string
         }
         Insert: {
@@ -231,6 +232,7 @@ export type Database = {
           insumo_id: string
           motivo_anulacion?: string | null
           nota?: string | null
+          tipo?: string
           usuario_id: string
         }
         Update: {
@@ -247,6 +249,7 @@ export type Database = {
           insumo_id?: string
           motivo_anulacion?: string | null
           nota?: string | null
+          tipo?: string
           usuario_id?: string
         }
         Relationships: [
