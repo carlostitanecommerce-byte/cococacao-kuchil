@@ -58,6 +58,12 @@ const CajaPage = () => {
     importCoworkingSession(items, sessionId, clienteNombre);
   };
 
+  const handleImportOrden = (orden: OrdenPendiente) => {
+    importOrdenPendiente(orden.items, orden.id, orden.cliente_nombre);
+    const folioStr = String(orden.folio).padStart(4, '0');
+    toast.success(`Orden #${folioStr} importada al ticket`);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
