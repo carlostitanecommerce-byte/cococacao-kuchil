@@ -152,7 +152,7 @@ export function useCajaSession() {
   };
 
 
-  return { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, cerrarCaja, refetch: fetchCaja };
+  return { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja, refetch: fetchCaja };
 }
 
 // Suma efectivo de ventas del turno: prioriza caja_id (vínculo directo) y
