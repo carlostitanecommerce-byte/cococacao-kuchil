@@ -106,6 +106,11 @@ export function CajaCheckoutPanel() {
     if (v !== 'tarjeta') setPropinaEnDigital(false);
   };
 
+  const handleTipoConsumoChange = (v: TipoConsumo) => {
+    setTipoConsumo(v);
+    if (v !== 'delivery') setPlataformaId(null);
+  };
+
   const isReadOnlyLine = (item: CartItem) =>
     item.tipo_concepto === 'coworking' || !!item.open_account_detalle_id;
 
