@@ -1376,6 +1376,10 @@ export type Database = {
         }
         Returns: Json
       }
+      ajustar_stock_insumo: {
+        Args: { _insumo_id: string; _motivo: string; _nuevo_stock: number }
+        Returns: Json
+      }
       anular_compra_insumo: {
         Args: { p_compra_id: string; p_motivo: string }
         Returns: Json
