@@ -308,43 +308,25 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
       paqueteId = data.id;
     }
 
-    // Borrar grupos existentes (cascade limpia opciones)
-    await supabase.from('paquete_grupos').delete().eq('paquete_id', paqueteId!);
-
-    // Insertar grupos uno por uno para capturar IDs y luego sus opciones
-    for (const g of grupos) {
-      const { data: gData, error: gErr } = await supabase
-        .from('paquete_grupos')
-        .insert({
-          paquete_id: paqueteId!,
-          nombre_grupo: g.nombre_grupo.trim(),
-          cantidad_incluida: g.cantidad_incluida,
-          es_obligatorio: g.es_obligatorio,
-          orden: g.orden,
-        })
-        .select('id')
-        .single();
-      if (gErr || !gData) {
-        toast.error('Error al guardar grupos');
-        if (isNew && paqueteId) await supabase.from('productos').delete().eq('id', paqueteId);
-        setSaving(false);
-        return;
-      }
-      if (g.opciones.length > 0) {
-        const { error: oErr } = await supabase.from('paquete_opciones_grupo').insert(
-          g.opciones.map(o => ({
-            grupo_id: gData.id,
-            producto_id: o.producto_id,
-            precio_adicional: o.precio_adicional || 0,
-          }))
-        );
-        if (oErr) {
-          toast.error('Error al guardar opciones');
-          if (isNew && paqueteId) await supabase.from('productos').delete().eq('id', paqueteId);
-          setSaving(false);
-          return;
-        }
-      }
+    // Guardar grupos + opciones atómicamente vía RPC transaccional
+    const { error: rpcErr } = await supabase.rpc('guardar_paquete_grupos', {
+      p_paquete_id: paqueteId!,
+      p_grupos: grupos.map(g => ({
+        nombre_grupo: g.nombre_grupo.trim(),
+        cantidad_incluida: g.cantidad_incluida,
+        es_obligatorio: g.es_obligatorio,
+        orden: g.orden,
+        opciones: g.opciones.map(o => ({
+          producto_id: o.producto_id,
+          precio_adicional: o.precio_adicional || 0,
+        })),
+      })),
+    });
+    if (rpcErr) {
+      toast.error('Error al guardar grupos del paquete');
+      if (isNew && paqueteId) await supabase.from('productos').delete().eq('id', paqueteId);
+      setSaving(false);
+      return;
     }
 
     if (user) {
