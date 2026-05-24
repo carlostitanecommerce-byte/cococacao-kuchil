@@ -337,6 +337,20 @@ export function CajaCheckoutPanel() {
             </div>
           </div>
 
+          {tipoConsumo === 'delivery' && (
+            <div className="space-y-1">
+              <Label className="text-xs">Plataforma</Label>
+              <Select value={plataformaId ?? ''} onValueChange={setPlataformaId}>
+                <SelectTrigger className="h-9"><SelectValue placeholder="Selecciona plataforma" /></SelectTrigger>
+                <SelectContent>
+                  {plataformas.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {metodoPago === 'mixto' && (
             <div className="space-y-2 p-2 rounded-md bg-muted/30 border border-border">
               <Label className="text-xs">Distribución (debe sumar ${total.toFixed(2)})</Label>
