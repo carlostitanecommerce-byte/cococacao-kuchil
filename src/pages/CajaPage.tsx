@@ -14,8 +14,11 @@ import { CierreCajaDialog } from '@/components/caja/CierreCajaDialog';
 import { MovimientosCajaPanel } from '@/components/caja/MovimientosCajaPanel';
 import { VentasTurnoPanel } from '@/components/caja/VentasTurnoPanel';
 import { SolicitudesCancelacionPanel } from '@/components/caja/SolicitudesCancelacionPanel';
+import { SolicitudesMovimientoPanel } from '@/components/caja/SolicitudesMovimientoPanel';
+import { useSolicitudMovimientoToasts } from '@/hooks/useSolicitudMovimientoToasts';
 import { CoworkingSessionSelector } from '@/components/caja/CoworkingSessionSelector';
 import { CajaCheckoutPanel } from '@/components/caja/CajaCheckoutPanel';
+
 import { useCartStore } from '@/stores/cartStore';
 import type { CartItem } from '@/components/pos/types';
 
@@ -35,6 +38,8 @@ const CajaPage = () => {
   const puedeOmitirApertura = isAdmin || isSupervisor;
 
   useSolicitudCancelacionToasts();
+  useSolicitudMovimientoToasts();
+
 
   const handleImportSession = (items: CartItem[], sessionId: string, clienteNombre: string) => {
     importCoworkingSession(items, sessionId, clienteNombre);
@@ -104,7 +109,9 @@ const CajaPage = () => {
         />
       )}
 
+      {(isAdmin || isSupervisor) && <SolicitudesMovimientoPanel />}
       {(isAdmin || isSupervisor) && <SolicitudesCancelacionPanel />}
+
 
       {(cajaAbierta || puedeOmitirApertura) && <VentasTurnoPanel isAdmin={isAdmin} cajaAbierta={cajaAbierta ? { id: cajaAbierta.id, folio: cajaAbierta.folio } : null} />}
     </div>

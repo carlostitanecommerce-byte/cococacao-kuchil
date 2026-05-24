@@ -10,7 +10,7 @@ import type { MovimientoCaja } from '@/hooks/useCajaSession';
 
 interface Props {
   movimientos: MovimientoCaja[];
-  onRegistrar: (tipo: 'entrada' | 'salida', monto: number, motivo: string) => Promise<{ error: string | null }>;
+  onRegistrar: (tipo: 'entrada' | 'salida', monto: number, motivo: string) => Promise<{ error: string | null; pending?: boolean; umbral?: number }>;
 }
 
 export function MovimientosCajaPanel({ movimientos, onRegistrar }: Props) {
@@ -29,17 +29,21 @@ export function MovimientosCajaPanel({ movimientos, onRegistrar }: Props) {
     if (!motivo.trim()) { toast.error('Ingresa un motivo'); return; }
 
     setSaving(true);
-    const { error } = await onRegistrar(tipo, val, motivo.trim());
+    const { error, pending, umbral } = await onRegistrar(tipo, val, motivo.trim());
     setSaving(false);
     if (error) {
       toast.error(error);
+    } else if (pending) {
+      toast.success('Solicitud enviada para aprobación', {
+        description: umbral ? `Movimientos ≥ $${umbral.toFixed(2)} requieren aprobación` : undefined,
+      });
+      setMonto(''); setMotivo(''); setOpen(false);
     } else {
       toast.success(`${tipo === 'entrada' ? 'Entrada' : 'Salida'} registrada`);
-      setMonto('');
-      setMotivo('');
-      setOpen(false);
+      setMonto(''); setMotivo(''); setOpen(false);
     }
   };
+
 
   return (
     <>
