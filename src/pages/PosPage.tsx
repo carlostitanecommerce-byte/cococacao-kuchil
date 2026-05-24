@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowRight, ClipboardCheck, Inbox } from 'lucide-react';
 import { toast } from 'sonner';
 import { verificarStock } from '@/hooks/useValidarStock';
-import { useCartStore } from '@/stores/cartStore';
+import { usePosCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsDesktop } from '@/hooks/use-mobile';
 import { enviarASesionKDS } from '@/components/coworking/sendToKitchen';
@@ -32,19 +32,19 @@ const PosPage = () => {
   // M3: lock por producto_id para evitar doble-clic concurrente.
   const addingLockRef = useRef<Set<string>>(new Set());
 
-  const items = useCartStore((s) => s.items);
-  const ensureOwner = useCartStore((s) => s.ensureOwner);
-  const addOrIncrementProduct = useCartStore((s) => s.addOrIncrementProduct);
-  const addOrIncrementPaquete = useCartStore((s) => s.addOrIncrementPaquete);
-  const updateQty = useCartStore((s) => s.updateQty);
-  const updateNotas = useCartStore((s) => s.updateNotas);
-  const removeItem = useCartStore((s) => s.removeItem);
-  const clear = useCartStore((s) => s.clear);
-  const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
-  const clienteNombre = useCartStore((s) => s.clienteNombre);
-  const tarifaUpsells = useCartStore((s) => s.tarifaUpsells);
-  const setActiveCoworkingSession = useCartStore((s) => s.setActiveCoworkingSession);
-  const setTarifaUpsells = useCartStore((s) => s.setTarifaUpsells);
+  const items = usePosCartStore((s) => s.items);
+  const ensureOwner = usePosCartStore((s) => s.ensureOwner);
+  const addOrIncrementProduct = usePosCartStore((s) => s.addOrIncrementProduct);
+  const addOrIncrementPaquete = usePosCartStore((s) => s.addOrIncrementPaquete);
+  const updateQty = usePosCartStore((s) => s.updateQty);
+  const updateNotas = usePosCartStore((s) => s.updateNotas);
+  const removeItem = usePosCartStore((s) => s.removeItem);
+  const clear = usePosCartStore((s) => s.clear);
+  const coworkingSessionId = usePosCartStore((s) => s.coworkingSessionId);
+  const clienteNombre = usePosCartStore((s) => s.clienteNombre);
+  const tarifaUpsells = usePosCartStore((s) => s.tarifaUpsells);
+  const setActiveCoworkingSession = usePosCartStore((s) => s.setActiveCoworkingSession);
+  const setTarifaUpsells = usePosCartStore((s) => s.setTarifaUpsells);
 
   useEffect(() => {
     ensureOwner(user?.id ?? null);
@@ -103,7 +103,7 @@ const PosPage = () => {
     addingLockRef.current.add(p.id);
     try {
     // M2: validar stock acumulado considerando lo que ya está en el carrito
-    const currentItems = useCartStore.getState().items;
+    const currentItems = usePosCartStore.getState().items;
     if (p.tipo === 'paquete') {
       // Para paquetes legacy (sin opciones), acumulamos cantidad existente.
       const existentePaquete = currentItems.find(
@@ -206,7 +206,7 @@ const PosPage = () => {
       return false;
     }
 
-    const currentItems = useCartStore.getState().items;
+    const currentItems = usePosCartStore.getState().items;
     const itemsTentativos = [
       ...currentItems.map((i) => ({
         producto_id: i.producto_id,

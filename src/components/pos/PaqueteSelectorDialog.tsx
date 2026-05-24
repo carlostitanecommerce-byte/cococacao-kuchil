@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Package, Plus, X, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useCartStore } from '@/stores/cartStore';
+import { usePosCartStore } from '@/stores/cartStore';
 import type { PaqueteOpcionSeleccionada } from './types';
 
 interface Grupo {
@@ -121,7 +121,7 @@ export function PaqueteSelectorDialog({ open, onOpenChange, paquete, onConfirm }
   const [stockMap, setStockMap] = useState<Record<string, StockState>>({});
   const [validating, setValidating] = useState(false);
   const validateSeqRef = useRef(0);
-  const cartItems = useCartStore(s => s.items);
+  const cartItems = usePosCartStore(s => s.items);
 
   const candidateProductIds = useMemo(() => {
     const ids = new Set<string>();

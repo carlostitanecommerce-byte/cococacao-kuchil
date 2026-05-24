@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Search, Inbox, Plus, Clock, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
-import { useCartStore } from '@/stores/cartStore';
+import { useCajaCartStore } from '@/stores/cartStore';
 import type { CartItem } from '@/components/pos/types';
 
 interface OrdenPendiente {
@@ -36,8 +36,8 @@ interface Props {
 }
 
 export function OrdenesPosSelector({ onImport }: Props) {
-  const cartItemCount = useCartStore((s) => s.items.length);
-  const ordenPendienteId = useCartStore((s) => s.ordenPendienteId);
+  const cartItemCount = useCajaCartStore((s) => s.items.length);
+  const ordenPendienteId = useCajaCartStore((s) => s.ordenPendienteId);
 
   const [ordenes, setOrdenes] = useState<OrdenPendiente[]>([]);
   const [search, setSearch] = useState('');
