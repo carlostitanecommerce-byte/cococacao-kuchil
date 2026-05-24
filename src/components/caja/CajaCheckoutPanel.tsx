@@ -314,7 +314,7 @@ export function CajaCheckoutPanel() {
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label className="text-xs">Consumo</Label>
-              <Select value={tipoConsumo} onValueChange={(v) => setTipoConsumo(v as TipoConsumo)}>
+              <Select value={tipoConsumo} onValueChange={(v) => handleTipoConsumoChange(v as TipoConsumo)}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="sitio">En sitio</SelectItem>
