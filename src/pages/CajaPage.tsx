@@ -38,6 +38,8 @@ const CajaPage = () => {
   const puedeOmitirApertura = isAdmin || isSupervisor;
 
   useSolicitudCancelacionToasts();
+  useSolicitudMovimientoToasts();
+
 
   const handleImportSession = (items: CartItem[], sessionId: string, clienteNombre: string) => {
     importCoworkingSession(items, sessionId, clienteNombre);
