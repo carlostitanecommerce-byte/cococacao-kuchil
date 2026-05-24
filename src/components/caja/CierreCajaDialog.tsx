@@ -107,19 +107,36 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
           setVentasPorUsuario([]);
         }
       }
-      // Sesiones coworking activas o pendientes de pago (advertencia)
       const { data: sesiones } = await supabase
         .from('coworking_sessions')
         .select('id, cliente_nombre, estado')
         .in('estado', ['activo', 'pendiente_pago'] as any);
-      setSesionesActivas(((sesiones ?? []) as any).map((s: any) => ({ id: s.id, cliente_nombre: s.cliente_nombre })));
+      setSesionesActivas(((sesiones ?? []) as any).map((s: any) => ({
+        id: s.id, cliente_nombre: s.cliente_nombre, estado: s.estado,
+      })));
     };
     fetchVentas();
-  }, [open, caja.fecha_apertura]);
+  }, [open, caja.fecha_apertura, caja.id]);
 
-  const totalEntradas = movimientos.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.monto, 0);
-  const totalSalidas = movimientos.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
+  const pendientesPago = useMemo(
+    () => sesionesActivas.filter(s => s.estado === 'pendiente_pago'),
+    [sesionesActivas],
+  );
+  const activasSinCobro = useMemo(
+    () => sesionesActivas.filter(s => s.estado === 'activo'),
+    [sesionesActivas],
+  );
+
+  // Reverso ya neutraliza pares: se calcula sobre vigentes
+  const reversedIds = new Set(movimientos.filter(m => m.reversa_de).map(m => m.reversa_de!));
+  const movsVigentes = movimientos.filter(m => !reversedIds.has(m.id) && !m.reversa_de);
+  const totalEntradas = movsVigentes.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.monto, 0);
+  const totalSalidas = movsVigentes.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
   const contado = parseFloat(montoContado) || 0;
+
+  // Cuando no es admin y hay pendientes de pago, el servidor bloqueará.
+  // El UI lo refleja deshabilitando el botón y mostrando explicación.
+  const bloqueadoPorPendientes = pendientesPago.length > 0 && !isAdmin;
 
   const ejecutarCierre = async () => {
     setConfirmCierreOpen(false);
@@ -141,12 +158,21 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
       toast.error('Ingresa el monto contado');
       return;
     }
+    if (bloqueadoPorPendientes) {
+      toast.error('Cobra primero las sesiones de coworking pendientes de pago');
+      return;
+    }
+    if (pendientesPago.length > 0 && isAdmin && !notasCierre.trim()) {
+      toast.error('Indica en notas por qué cierras con sesiones pendientes de pago');
+      return;
+    }
     if (sesionesActivas.length > 0) {
       setConfirmCierreOpen(true);
       return;
     }
     void ejecutarCierre();
   };
+
 
   // Post-submit result view
   if (submitted && resultEsperado !== null) {
