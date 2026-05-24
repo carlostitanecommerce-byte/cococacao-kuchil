@@ -27,7 +27,7 @@ const CajaPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const pendingSessionId = searchParams.get('session');
   const { roles } = useAuth();
-  const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, cerrarCaja } = useCajaSession();
+  const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
   const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
   const [cierreOpen, setCierreOpen] = useState(false);
