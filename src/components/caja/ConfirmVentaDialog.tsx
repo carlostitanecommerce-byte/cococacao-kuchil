@@ -13,7 +13,7 @@ import { nowCDMX } from '@/lib/utils';
 interface Props {
   summary: VentaSummary | null;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (ventaId: string) => void;
 }
 
 export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
