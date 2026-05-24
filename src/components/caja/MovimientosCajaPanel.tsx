@@ -3,25 +3,40 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { ArrowUpCircle, ArrowDownCircle, Loader2, Receipt } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { ArrowUpCircle, ArrowDownCircle, Loader2, Receipt, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
 import type { MovimientoCaja } from '@/hooks/useCajaSession';
 
 interface Props {
   movimientos: MovimientoCaja[];
   onRegistrar: (tipo: 'entrada' | 'salida', monto: number, motivo: string) => Promise<{ error: string | null; pending?: boolean; umbral?: number }>;
+  onReversar?: (movimientoId: string, motivo: string) => Promise<{ error: string | null }>;
 }
 
-export function MovimientosCajaPanel({ movimientos, onRegistrar }: Props) {
+export function MovimientosCajaPanel({ movimientos, onRegistrar, onReversar }: Props) {
+  const { roles } = useAuth();
+  const puedeReversar = roles.includes('administrador') || roles.includes('supervisor');
+
   const [open, setOpen] = useState(false);
   const [tipo, setTipo] = useState<'entrada' | 'salida'>('salida');
   const [monto, setMonto] = useState('');
   const [motivo, setMotivo] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const totalEntradas = movimientos.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.monto, 0);
-  const totalSalidas = movimientos.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
+  const [reversing, setReversing] = useState<MovimientoCaja | null>(null);
+  const [motivoReverso, setMotivoReverso] = useState('');
+  const [reversingLoading, setReversingLoading] = useState(false);
+
+  const reversedIds = new Set(movimientos.filter(m => m.reversa_de).map(m => m.reversa_de!));
+
+  // Totales netos (excluyendo movimientos reversados y sus reversos)
+  const movimientosVigentes = movimientos.filter(m => !reversedIds.has(m.id) && !m.reversa_de);
+  const totalEntradas = movimientosVigentes.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.monto, 0);
+  const totalSalidas = movimientosVigentes.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
 
   const handleSubmit = async () => {
     const val = parseFloat(monto);
@@ -44,6 +59,17 @@ export function MovimientosCajaPanel({ movimientos, onRegistrar }: Props) {
     }
   };
 
+  const handleReversar = async () => {
+    if (!reversing || !onReversar) return;
+    if (!motivoReverso.trim()) { toast.error('Indica el motivo del reverso'); return; }
+    setReversingLoading(true);
+    const { error } = await onReversar(reversing.id, motivoReverso.trim());
+    setReversingLoading(false);
+    if (error) { toast.error(error); return; }
+    toast.success('Movimiento reversado');
+    setReversing(null);
+    setMotivoReverso('');
+  };
 
   return (
     <>
@@ -90,23 +116,38 @@ export function MovimientosCajaPanel({ movimientos, onRegistrar }: Props) {
               <Input placeholder="Ej: Pago de hielo, Cambio de monedas..." value={motivo} onChange={e => setMotivo(e.target.value)} maxLength={200} />
             </div>
 
-            {/* Recent movements list */}
             {movimientos.length > 0 && (
-              <div className="space-y-1 max-h-32 overflow-y-auto">
+              <div className="space-y-1 max-h-48 overflow-y-auto">
                 <p className="text-xs font-semibold text-muted-foreground uppercase">Movimientos del turno</p>
-                {movimientos.map(m => (
-                  <div key={m.id} className="flex items-center justify-between text-xs p-1.5 rounded border border-border">
-                    <div className="flex items-center gap-1.5">
-                      {m.tipo === 'entrada'
-                        ? <ArrowUpCircle className="h-3 w-3 text-primary shrink-0" />
-                        : <ArrowDownCircle className="h-3 w-3 text-destructive shrink-0" />}
-                      <span className="truncate max-w-[180px]">{m.motivo}</span>
+                {movimientos.map(m => {
+                  const isReversed = reversedIds.has(m.id);
+                  const isReverso = !!m.reversa_de;
+                  return (
+                    <div key={m.id} className={`flex items-center justify-between text-xs p-1.5 rounded border border-border gap-2 ${isReversed ? 'opacity-50 line-through' : ''}`}>
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        {m.tipo === 'entrada'
+                          ? <ArrowUpCircle className="h-3 w-3 text-primary shrink-0" />
+                          : <ArrowDownCircle className="h-3 w-3 text-destructive shrink-0" />}
+                        <span className="truncate">{m.motivo}</span>
+                        {isReverso && <Badge variant="outline" className="text-[10px] py-0 h-4">Reverso</Badge>}
+                        {isReversed && <Badge variant="secondary" className="text-[10px] py-0 h-4">Reversado</Badge>}
+                      </div>
+                      <span className={`shrink-0 ${m.tipo === 'entrada' ? 'text-primary font-medium' : 'text-destructive font-medium'}`}>
+                        {m.tipo === 'entrada' ? '+' : '-'}${m.monto.toFixed(2)}
+                      </span>
+                      {puedeReversar && onReversar && !isReversed && !isReverso && (
+                        <Button
+                          type="button" variant="ghost" size="sm"
+                          className="h-6 w-6 p-0 shrink-0"
+                          onClick={() => { setReversing(m); setMotivoReverso(''); }}
+                          title="Reversar"
+                        >
+                          <Undo2 className="h-3 w-3" />
+                        </Button>
+                      )}
                     </div>
-                    <span className={m.tipo === 'entrada' ? 'text-primary font-medium' : 'text-destructive font-medium'}>
-                      {m.tipo === 'entrada' ? '+' : '-'}${m.monto.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -116,6 +157,35 @@ export function MovimientosCajaPanel({ movimientos, onRegistrar }: Props) {
             <Button onClick={handleSubmit} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Registrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!reversing} onOpenChange={v => { if (!v && !reversingLoading) { setReversing(null); setMotivoReverso(''); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reversar Movimiento</DialogTitle>
+            <DialogDescription>
+              {reversing && (
+                <>Se creará un {reversing.tipo === 'entrada' ? 'salida' : 'entrada'} de ${reversing.monto.toFixed(2)} vinculado.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Motivo del reverso *</Label>
+            <Textarea
+              value={motivoReverso}
+              onChange={e => setMotivoReverso(e.target.value)}
+              placeholder="Ej: monto incorrecto, registrado por error..."
+              rows={3}
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setReversing(null); setMotivoReverso(''); }} disabled={reversingLoading}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleReversar} disabled={reversingLoading}>
+              {reversingLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Confirmar Reverso
             </Button>
           </DialogFooter>
         </DialogContent>
