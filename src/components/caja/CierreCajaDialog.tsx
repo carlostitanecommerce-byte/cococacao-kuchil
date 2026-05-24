@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -8,11 +8,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Calculator, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Calculator, EyeOff, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import type { CajaSession, MovimientoCaja } from '@/hooks/useCajaSession';
-import { nowCDMX } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+
 
 interface VentaPorUsuario {
   usuario_id: string;
