@@ -18,6 +18,7 @@ import { SolicitudesCancelacionPanel } from '@/components/caja/SolicitudesCancel
 import { SolicitudesMovimientoPanel } from '@/components/caja/SolicitudesMovimientoPanel';
 import { useSolicitudMovimientoToasts } from '@/hooks/useSolicitudMovimientoToasts';
 import { CoworkingSessionSelector } from '@/components/caja/CoworkingSessionSelector';
+import { OrdenesPosSelector, type OrdenPendiente } from '@/components/caja/OrdenesPosSelector';
 import { CajaCheckoutPanel } from '@/components/caja/CajaCheckoutPanel';
 
 import { useCartStore } from '@/stores/cartStore';
