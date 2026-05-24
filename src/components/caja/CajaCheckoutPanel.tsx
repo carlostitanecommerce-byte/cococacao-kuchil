@@ -44,6 +44,19 @@ export function CajaCheckoutPanel() {
   const [summary, setSummary] = useState<VentaSummary | null>(null);
   const [incrementing, setIncrementing] = useState<string | null>(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [plataformaId, setPlataformaId] = useState<string | null>(null);
+  const [plataformas, setPlataformas] = useState<{ id: string; nombre: string }[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from('plataformas_delivery')
+      .select('id,nombre')
+      .eq('activo', true)
+      .order('nombre')
+      .then(({ data, error }) => {
+        if (!error && data) setPlataformas(data);
+      });
+  }, []);
 
   const subtotal = useMemo(() => items.reduce((s, i) => s + i.subtotal, 0), [items]);
   const openAccountCount = useMemo(
