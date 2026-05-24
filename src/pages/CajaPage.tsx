@@ -115,7 +115,7 @@ const CajaPage = () => {
         <CoworkingSessionSelector
           onImportSession={handleImportSession}
           importedSessionId={coworkingSessionId ?? undefined}
-          pendingSessionId={pendingSessionId}
+          pendingSessionId={effectivePendingSessionId}
           onPendingConsumed={() => setSearchParams({})}
         />
       )}
