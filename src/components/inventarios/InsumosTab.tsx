@@ -563,6 +563,47 @@ const InsumosTab = ({ isAdmin }: Props) => {
         />
       )}
 
+      {/* Motivo de ajuste manual de stock */}
+      <AlertDialog open={stockMotivoOpen} onOpenChange={open => { if (!open && !saving) { setStockMotivoOpen(false); setPendingStockChange(null); setStockMotivo(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-amber-500" />
+              Ajuste manual de stock
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-left">
+                <p>
+                  Vas a cambiar el stock de <span className="font-semibold text-foreground">{pendingStockChange?.nombre}</span> de{' '}
+                  <span className="font-mono">{pendingStockChange?.stockPrev}</span> a{' '}
+                  <span className="font-mono font-semibold text-foreground">{pendingStockChange?.stockNuevo}</span>.
+                </p>
+                <p className="text-xs">
+                  Este movimiento queda registrado en la bitácora con tu nombre y el motivo capturado.
+                </p>
+                <div className="pt-2">
+                  <Label htmlFor="stock-motivo" className="text-sm">Motivo <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="stock-motivo"
+                    autoFocus
+                    value={stockMotivo}
+                    onChange={e => setStockMotivo(e.target.value)}
+                    placeholder="Ej. Conteo físico, corrección de error de captura..."
+                    maxLength={200}
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmStockMotivo} disabled={saving || stockMotivo.trim().length < 3}>
+              {saving ? 'Guardando...' : 'Confirmar ajuste'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>
