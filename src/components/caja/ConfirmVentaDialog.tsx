@@ -302,6 +302,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       }
 
       const venta = rpcData as unknown as { id: string; folio: number };
+      ventaIdRef.current = venta.id;
 
       // 4. Create KDS order for kitchen (productos simples + componentes de paquetes)
       // - Excluir tiempo de servicio coworking (no preparable).
