@@ -135,8 +135,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
     if (!form.nombre.trim()) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
     // Nota: costo_unitario se calcula automáticamente en el trigger BEFORE UPDATE
-    // y stock_actual NO se incluye en updates (se canaliza vía RPC ajustar_stock_insumo).
-    const stockNuevo = parseFloat(form.stock_actual) || 0;
+    // y stock_actual NO se incluye en updates (solo se setea en INSERT).
     const payloadBase = {
       nombre: form.nombre.trim(),
       unidad_medida: form.unidad_medida,
@@ -148,25 +147,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
     };
 
     if (editingId) {
-      const previo = insumos.find(i => i.id === editingId);
-      const stockCambio = previo && previo.stock_actual !== stockNuevo;
-
-      // Si cambió el stock, interceptar con diálogo de motivo (RPC requiere motivo)
-      if (stockCambio && previo) {
-        setSaving(false);
-        setPendingStockChange({
-          insumoId: editingId,
-          nombre: payloadBase.nombre,
-          stockPrev: previo.stock_actual,
-          stockNuevo,
-          payloadRestante: payloadBase,
-        });
-        setStockMotivo('');
-        setStockMotivoOpen(true);
-        return;
-      }
-
-      // Sin cambio de stock: update directo (sin stock_actual ni costo_unitario)
+      // Update sin stock_actual ni costo_unitario (read-only en edición)
       const { error } = await supabase.from('insumos').update(payloadBase).eq('id', editingId);
       if (error) {
         if (error.code === '23505' || /unique/i.test(error.message)) {
@@ -184,7 +165,8 @@ const InsumosTab = ({ isAdmin }: Props) => {
         });
       }
     } else {
-      // INSERT: el trigger BEFORE UPDATE no aplica, stock_actual permitido
+      // INSERT: stock_actual permitido (alta inicial)
+      const stockNuevo = parseFloat(form.stock_actual) || 0;
       const payloadInsert = { ...payloadBase, stock_actual: stockNuevo };
       const { error } = await supabase.from('insumos').insert(payloadInsert);
       if (error) {
@@ -208,54 +190,6 @@ const InsumosTab = ({ isAdmin }: Props) => {
     fetchInsumos();
   };
 
-  const confirmStockMotivo = async () => {
-    if (!pendingStockChange) return;
-    const motivo = stockMotivo.trim();
-    if (motivo.length < 3) { toast.error('El motivo debe tener al menos 3 caracteres'); return; }
-    setSaving(true);
-
-    // 1) Ajuste de stock vía RPC (atómico + audit)
-    const { error: rpcErr } = await supabase.rpc('ajustar_stock_insumo' as any, {
-      _insumo_id: pendingStockChange.insumoId,
-      _nuevo_stock: pendingStockChange.stockNuevo,
-      _motivo: motivo,
-    });
-    if (rpcErr) {
-      toast.error(rpcErr.message || 'No se pudo ajustar el stock');
-      setSaving(false);
-      return;
-    }
-
-    // 2) Update del resto de campos (sin stock_actual ni costo_unitario)
-    const { error: updErr } = await supabase
-      .from('insumos')
-      .update(pendingStockChange.payloadRestante)
-      .eq('id', pendingStockChange.insumoId);
-    if (updErr) {
-      if (updErr.code === '23505' || /unique/i.test(updErr.message)) {
-        toast.error(`Ya existe un insumo con el nombre "${pendingStockChange.payloadRestante.nombre}"`);
-      } else {
-        toast.error('Stock ajustado, pero falló actualizar el resto del insumo');
-      }
-      setSaving(false);
-      return;
-    }
-
-    await supabase.from('audit_logs').insert({
-      user_id: user!.id,
-      accion: 'actualizar_insumo',
-      descripcion: `Insumo actualizado: ${pendingStockChange.payloadRestante.nombre}`,
-      metadata: { insumo_id: pendingStockChange.insumoId, ...pendingStockChange.payloadRestante },
-    });
-
-    toast.success('Insumo actualizado y stock ajustado');
-    setSaving(false);
-    setStockMotivoOpen(false);
-    setPendingStockChange(null);
-    setStockMotivo('');
-    setDialogOpen(false);
-    fetchInsumos();
-  };
 
 
   const confirmDelete = async () => {
