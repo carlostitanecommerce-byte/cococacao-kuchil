@@ -120,12 +120,15 @@ const CajaPage = () => {
       </Card>
 
       {cajaAbierta && (
-        <CoworkingSessionSelector
-          onImportSession={handleImportSession}
-          importedSessionId={coworkingSessionId ?? undefined}
-          pendingSessionId={effectivePendingSessionId}
-          onPendingConsumed={() => setSearchParams({})}
-        />
+        <>
+          <OrdenesPosSelector onImport={handleImportOrden} />
+          <CoworkingSessionSelector
+            onImportSession={handleImportSession}
+            importedSessionId={coworkingSessionId ?? undefined}
+            pendingSessionId={effectivePendingSessionId}
+            onPendingConsumed={() => setSearchParams({})}
+          />
+        </>
       )}
 
       {(isAdmin || isSupervisor) && <SolicitudesMovimientoPanel />}
