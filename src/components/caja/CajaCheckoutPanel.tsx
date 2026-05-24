@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle, Lock, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { useCartStore } from '@/stores/cartStore';
+import { useCajaCartStore } from '@/stores/cartStore';
 import { useVentaConfig } from '@/components/caja/useVentaConfig';
 import { ConfirmVentaDialog } from '@/components/caja/ConfirmVentaDialog';
 import { useCajaSession } from '@/hooks/useCajaSession';
@@ -25,13 +25,13 @@ type MetodoPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
 type TipoConsumo = 'sitio' | 'para_llevar' | 'delivery';
 
 export function CajaCheckoutPanel() {
-  const items = useCartStore((s) => s.items);
-  const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
-  const ordenPendienteId = useCartStore((s) => s.ordenPendienteId);
-  const clienteNombre = useCartStore((s) => s.clienteNombre);
-  const updateQty = useCartStore((s) => s.updateQty);
-  const removeItem = useCartStore((s) => s.removeItem);
-  const clear = useCartStore((s) => s.clear);
+  const items = useCajaCartStore((s) => s.items);
+  const coworkingSessionId = useCajaCartStore((s) => s.coworkingSessionId);
+  const ordenPendienteId = useCajaCartStore((s) => s.ordenPendienteId);
+  const clienteNombre = useCajaCartStore((s) => s.clienteNombre);
+  const updateQty = useCajaCartStore((s) => s.updateQty);
+  const removeItem = useCajaCartStore((s) => s.removeItem);
+  const clear = useCajaCartStore((s) => s.clear);
 
   const { config } = useVentaConfig();
   const { cajaAbierta } = useCajaSession();

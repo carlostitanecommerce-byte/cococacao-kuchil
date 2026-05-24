@@ -1,73 +1,69 @@
-## Fase 4 + 5: Cola de órdenes POS pendientes en Caja
+# Plan: Separación física de carritos POS ↔ Caja
 
-### Fase 4 — UI de selección en Caja
+## Diagnóstico
 
-**1. Nuevo componente `src/components/caja/OrdenesPosSelector.tsx`**
+El bug raíz es estructural: **POS y Caja comparten el mismo `useCartStore`** (un único Zustand persistido en `sessionStorage` bajo la llave `pos-cart`). Ambos módulos leen y escriben sobre el mismo arreglo `items`. Por eso:
 
-Modelado sobre `CoworkingSessionSelector.tsx` (mismo look & feel, Card + lista compacta).
+- Cuando agregas productos en `/pos` y navegas a `/caja`, Caja ve exactamente los mismos `items` (es el mismo objeto).
+- Si en Caja no cobras y regresas a `/pos`, los productos siguen ahí porque nunca salieron del store.
+- Toda la lógica nueva (Fase 3 que bloquea importación si `hasItems > 0`, Fase 4 con `OrdenesPosSelector`, Fase 5 con `ordenPendienteId`) opera sobre ese mismo carrito compartido, así que no resuelve el problema: el POS sigue "contaminando" la vista de Caja.
 
-- Query: `select id, folio, cliente_nombre, items, total, created_at, usuario_id, caja_id from ordenes_pos_pendientes where estado = 'pendiente' order by created_at asc`.
-- Suscripción Realtime al canal `postgres_changes` sobre `ordenes_pos_pendientes` (igual patrón que el selector de coworking) para refrescar al insertarse/cancelarse/cobrarse una orden.
-- Cada tarjeta muestra: folio (#0001), nombre del cliente (o "Sin nombre"), número de items, total, tiempo transcurrido (`formatDistanceToNow` en es), y badge con nombre del cajero que la dejó pendiente (resuelto vía join a `profiles` por `usuario_id`).
-- Botón principal **"Importar a ticket"**. Acción:
-  - Si `useCartStore(s => s.items.length) > 0` → abrir `AlertDialog` con título "Tienes un ticket en progreso" y texto: *"Cóbralo o presiona Limpiar antes de importar una nueva orden."* Solo botón "Entendido". No importa nada.
-  - Si carrito vacío → llamar `onImport(orden)` provisto por el padre.
-- Buscador opcional por nombre/folio (mismo input que el selector existente, omitible si simplifica).
-- Estado vacío: "Sin órdenes pendientes en cola." centrado en la card.
+Además, en `goToCheckout` (PosPage) hay una rama "Caja libre → navega directo sin parquear", que es la que dispara el síntoma exacto que describes: el ticket viaja a Caja sin pasar por la cola.
 
-**2. Integración en `src/pages/CajaPage.tsx`**
+## Objetivo
 
-- Importar y renderizar `OrdenesPosSelector` **encima** de `CoworkingSessionSelector` dentro del bloque `cajaAbierta && (...)` de la columna izquierda.
-- Handler `handleImportOrden(orden)` que llama a un nuevo método del store (ver Fase 5) y muestra toast `"Orden #${folio} importada"`.
+Cada módulo debe tener **su propio carrito**, y la única vía de comunicación POS→Caja debe ser la tabla `ordenes_pos_pendientes` (la cola). El POS nunca debe poder "empujar" items directamente al carrito de Caja.
 
-**3. Endurecer `CoworkingSessionSelector` (regla estricta unificada)**
+## Cambios
 
-- Hoy ya pide confirmación cuando hay items, pero permite continuar. Cambiar el flujo: si `cartItemCount > 0` y la sesión seleccionada **no** es la misma que `activeCartSessionId`, mostrar el mismo `AlertDialog` bloqueante ("Tienes un ticket en progreso…") y **no** ofrecer reemplazar. Mantener el caso "misma sesión" (refresh) sin cambios.
+### 1. Dividir `src/stores/cartStore.ts` en dos stores hermanos
 
-### Fase 5 — Consumo y cierre del ciclo
+Crear dos stores con la misma forma e idénticos métodos, pero con llaves de persistencia distintas:
 
-**1. `src/stores/cartStore.ts`**
+- `usePosCartStore` — llave `pos-cart` (preserva el sessionStorage actual del POS).
+- `useCajaCartStore` — llave `caja-cart` (nueva, vacía al inicio).
 
-- Agregar campo `ordenPendienteId: string | null` (init `null`).
-- Incluirlo en los reseteos: `clear()`, `ensureOwner` (ambos branches que vacían carrito).
-- Nuevo método `importOrdenPendiente(items: CartItem[], ordenId: string, clienteNombre: string | null)`:
-  ```ts
-  set({
-    items: items.map(ensureLineId),
-    ordenPendienteId: ordenId,
-    clienteNombre,
-    coworkingSessionId: null,
-    tarifaUpsells: {},
-  })
-  ```
-- En `importCoworkingSession` también limpiar `ordenPendienteId: null` para evitar mezcla.
-- Exponer un setter `setOrdenPendienteId(id: string | null)` por si hace falta limpiar manualmente.
+Implementación: factorizar el creador actual en una función `createCartStore(persistKey)` y exportar las dos instancias. Toda la lógica interna (addOrIncrementProduct, importCoworkingSession, importOrdenPendiente, ordenPendienteId, tarifaUpsells, ensureOwner, etc.) queda igual; solo se duplica el "espacio" de estado.
 
-**2. `src/components/caja/CajaCheckoutPanel.tsx`**
+### 2. Repuntar consumidores
 
-- Leer `ordenPendienteId = useCartStore(s => s.ordenPendienteId)`.
-- En `handleSuccess` (línea 253), **antes** del `clear()`, si `ordenPendienteId`:
-  ```ts
-  await supabase
-    .from('ordenes_pos_pendientes')
-    .update({ estado: 'cobrada', venta_id: ventaIdRecienCreada })
-    .eq('id', ordenPendienteId);
-  ```
-  - Necesitamos el `venta_id` recién creado. `ConfirmVentaDialog.onSuccess` actualmente no lo pasa: ampliar su firma a `onSuccess: (ventaId: string) => void` y propagar desde donde se inserta la venta. (Si la firma actual ya devuelve el id, usarlo directo; revisar al implementar.)
-  - Si falla el UPDATE, mostrar `toast.error` pero **no** revertir la venta (la venta ya está cobrada); registrar y dejar que admin resuelva.
-- Limpiar `ordenPendienteId` vía `clear()` (ya queda cubierto al agregarlo al reset del store).
+- **POS** (`src/pages/PosPage.tsx` y componentes en `src/components/pos/*`): usar `usePosCartStore`. Incluye los `useCartStore.getState()` directos de las líneas 106 y 209.
+- **Caja** (`src/pages/CajaPage.tsx`, `src/components/caja/CajaCheckoutPanel.tsx`, `src/components/caja/CoworkingSessionSelector.tsx`, `src/components/caja/OrdenesPosSelector.tsx`, `src/components/caja/ConfirmVentaDialog.tsx` y cualquier otro componente en `src/components/caja/*` que lea el cart): usar `useCajaCartStore`.
+- Verificar con `rg "useCartStore"` que no quede ningún import ambiguo y reemplazar uno por uno según el módulo dueño del archivo.
 
-**3. Importación desde el selector**
+### 3. Forzar que POS siempre pase por la cola
 
-- `handleImportOrden` en `CajaPage` deserializa `orden.items` (JSONB → `CartItem[]`) y llama `importOrdenPendiente(items, orden.id, orden.cliente_nombre)`.
+En `PosPage.tsx → goToCheckout`, eliminar la rama "Caja libre → `navigate('/caja')` con el cart cargado". El nuevo flujo del botón único "Procesar pago en Caja":
 
-### Fuera de alcance
-- No se modifica `ordenes_pos_pendientes` ni schema (la tabla ya existe con estado `cobrada` y campo `venta_id`).
-- No se toca el POS (Fase 2 ya parquea las órdenes).
-- No se construye flujo de cancelación de órdenes pendientes desde Caja (queda para fase posterior; admin puede usar campos `cancelada_por`/`motivo_cancelacion` ya presentes).
-- No se valida stock al importar (se valida normalmente al cobrar, lógica existente de `CajaCheckoutPanel`).
+1. Si `isOpenAccount` (sesión coworking activa) → mantener `chargeToOpenAccount` como hoy.
+2. Si no, **siempre** ejecutar `parkOrder()` (insertar en `ordenes_pos_pendientes` con estado `pendiente`) y limpiar el carrito del POS. Ya no se consulta `count` previo de la cola.
+3. Después de parquear, navegar a `/caja`. Caja arranca con su propio cart vacío y muestra la orden recién creada en `OrdenesPosSelector` lista para importar.
 
-### Notas técnicas
-- `items` en BD es `jsonb` con la forma serializada de `CartItem[]`; al re-hidratar pasar por `ensureLineId` (lo hace el store).
-- Realtime: `ALTER PUBLICATION supabase_realtime ADD TABLE public.ordenes_pos_pendientes` — verificar si ya está; si no, agregarlo vía migración.
-- El campo `venta_id` en `ordenes_pos_pendientes` ya existe (vimos la columna), así que basta UPDATE.
+Esto unifica el comportamiento que ya pediste en mensajes previos: un solo botón, comportamiento automático, sin sobrescritura.
+
+### 4. Limpiar la lógica defensiva que ya no aplica
+
+Como los carritos están físicamente separados:
+
+- En `CajaPage.tsx`, el `useEffect` que lee `?session=` y bloquea si `hasItems` sigue siendo válido, pero ahora `hasItems` se lee del **cart de Caja**, no del de POS. La protección sigue siendo útil para evitar pisar un cobro en curso dentro de Caja.
+- En `CoworkingSessionSelector.tsx` y `OrdenesPosSelector.tsx`, el `AlertDialog` de "tienes un ticket en progreso" sigue siendo válido pero ahora se refiere exclusivamente al ticket de Caja.
+
+No se elimina ninguna validación; solo cambia el store del que leen.
+
+### 5. Persistencia y reset por usuario
+
+- `ensureOwner` se ejecuta en ambos stores de forma independiente cuando cambia el usuario autenticado (igual que hoy).
+- En logout, ambos sessionStorages (`pos-cart` y `caja-cart`) deben quedar vacíos. Verificar que el hook/efecto actual de logout dispare `ensureOwner(null)` sobre los dos.
+
+## Fuera de alcance
+
+- No se toca el esquema de `ordenes_pos_pendientes` ni la lógica de cobro (Fase 5 sigue válida, solo cambia el store que lee `ordenPendienteId`).
+- No se toca el flujo de coworking (sigue cargando upsells/cuenta abierta sobre el cart del POS cuando el operador está en `/pos`).
+- No se toca el botón ni etiquetas existentes; solo cambia el comportamiento interno.
+
+## Resultado esperado
+
+- Agregas 3 productos en POS → presionas "Procesar pago en Caja" → la orden se inserta en la cola, el carrito del POS queda vacío.
+- En Caja aparece la tarjeta de esa orden. Si la importas, entra al **cart de Caja**.
+- Vuelves al POS: cart vacío, listo para una nueva venta independiente.
+- Si en Caja decides no cobrarla aún y vuelves al POS, la orden queda en la cola; el POS sigue limpio.

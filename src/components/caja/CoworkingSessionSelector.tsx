@@ -20,7 +20,7 @@ import { CancelSessionDialog } from '@/components/coworking/CancelSessionDialog'
 import type { CoworkingSession, TarifaSnapshot } from '@/components/coworking/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { useCartStore } from '@/stores/cartStore';
+import { useCajaCartStore } from '@/stores/cartStore';
 
 interface ActiveSession {
   id: string;
@@ -59,8 +59,8 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
     roles.includes('administrador') ||
     roles.includes('supervisor') ||
     roles.includes('caja');
-  const cartItemCount = useCartStore((s) => s.items.length);
-  const activeCartSessionId = useCartStore((s) => s.coworkingSessionId);
+  const cartItemCount = useCajaCartStore((s) => s.items.length);
+  const activeCartSessionId = useCajaCartStore((s) => s.coworkingSessionId);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);

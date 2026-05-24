@@ -21,7 +21,7 @@ import { CoworkingSessionSelector } from '@/components/caja/CoworkingSessionSele
 import { OrdenesPosSelector, type OrdenPendiente } from '@/components/caja/OrdenesPosSelector';
 import { CajaCheckoutPanel } from '@/components/caja/CajaCheckoutPanel';
 
-import { useCartStore } from '@/stores/cartStore';
+import { useCajaCartStore } from '@/stores/cartStore';
 import type { CartItem } from '@/components/pos/types';
 
 const CajaPage = () => {
@@ -30,10 +30,10 @@ const CajaPage = () => {
   const pendingSessionId = searchParams.get('session');
   const { roles } = useAuth();
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja } = useCajaSession();
-  const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
-  const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
-  const importOrdenPendiente = useCartStore((s) => s.importOrdenPendiente);
-  const hasItems = useCartStore((s) => s.items.length > 0);
+  const importCoworkingSession = useCajaCartStore((s) => s.importCoworkingSession);
+  const coworkingSessionId = useCajaCartStore((s) => s.coworkingSessionId);
+  const importOrdenPendiente = useCajaCartStore((s) => s.importOrdenPendiente);
+  const hasItems = useCajaCartStore((s) => s.items.length > 0);
   const [cierreOpen, setCierreOpen] = useState(false);
   const [aperturaCerrada, setAperturaCerrada] = useState(false);
 

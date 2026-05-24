@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowRight, ClipboardCheck, Inbox } from 'lucide-react';
 import { toast } from 'sonner';
 import { verificarStock } from '@/hooks/useValidarStock';
-import { useCartStore } from '@/stores/cartStore';
+import { usePosCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsDesktop } from '@/hooks/use-mobile';
 import { enviarASesionKDS } from '@/components/coworking/sendToKitchen';
@@ -32,19 +32,19 @@ const PosPage = () => {
   // M3: lock por producto_id para evitar doble-clic concurrente.
   const addingLockRef = useRef<Set<string>>(new Set());
 
-  const items = useCartStore((s) => s.items);
-  const ensureOwner = useCartStore((s) => s.ensureOwner);
-  const addOrIncrementProduct = useCartStore((s) => s.addOrIncrementProduct);
-  const addOrIncrementPaquete = useCartStore((s) => s.addOrIncrementPaquete);
-  const updateQty = useCartStore((s) => s.updateQty);
-  const updateNotas = useCartStore((s) => s.updateNotas);
-  const removeItem = useCartStore((s) => s.removeItem);
-  const clear = useCartStore((s) => s.clear);
-  const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
-  const clienteNombre = useCartStore((s) => s.clienteNombre);
-  const tarifaUpsells = useCartStore((s) => s.tarifaUpsells);
-  const setActiveCoworkingSession = useCartStore((s) => s.setActiveCoworkingSession);
-  const setTarifaUpsells = useCartStore((s) => s.setTarifaUpsells);
+  const items = usePosCartStore((s) => s.items);
+  const ensureOwner = usePosCartStore((s) => s.ensureOwner);
+  const addOrIncrementProduct = usePosCartStore((s) => s.addOrIncrementProduct);
+  const addOrIncrementPaquete = usePosCartStore((s) => s.addOrIncrementPaquete);
+  const updateQty = usePosCartStore((s) => s.updateQty);
+  const updateNotas = usePosCartStore((s) => s.updateNotas);
+  const removeItem = usePosCartStore((s) => s.removeItem);
+  const clear = usePosCartStore((s) => s.clear);
+  const coworkingSessionId = usePosCartStore((s) => s.coworkingSessionId);
+  const clienteNombre = usePosCartStore((s) => s.clienteNombre);
+  const tarifaUpsells = usePosCartStore((s) => s.tarifaUpsells);
+  const setActiveCoworkingSession = usePosCartStore((s) => s.setActiveCoworkingSession);
+  const setTarifaUpsells = usePosCartStore((s) => s.setTarifaUpsells);
 
   useEffect(() => {
     ensureOwner(user?.id ?? null);
@@ -103,7 +103,7 @@ const PosPage = () => {
     addingLockRef.current.add(p.id);
     try {
     // M2: validar stock acumulado considerando lo que ya está en el carrito
-    const currentItems = useCartStore.getState().items;
+    const currentItems = usePosCartStore.getState().items;
     if (p.tipo === 'paquete') {
       // Para paquetes legacy (sin opciones), acumulamos cantidad existente.
       const existentePaquete = currentItems.find(
@@ -206,7 +206,7 @@ const PosPage = () => {
       return false;
     }
 
-    const currentItems = useCartStore.getState().items;
+    const currentItems = usePosCartStore.getState().items;
     const itemsTentativos = [
       ...currentItems.map((i) => ({
         producto_id: i.producto_id,
@@ -379,10 +379,11 @@ const PosPage = () => {
       setClienteRef('');
       setParkDialogOpen(false);
       setTicketOpen(false);
+      navigate('/caja');
     } finally {
       setParking(false);
     }
-  }, [user?.id, items, subtotal, clienteRef, clear]);
+  }, [user?.id, items, subtotal, clienteRef, clear, navigate]);
 
   const goToCheckout = async () => {
     if (isOpenAccount) {
@@ -391,25 +392,12 @@ const PosPage = () => {
       return;
     }
     if (items.length === 0) return;
-    // Detectar si Caja está ocupada con órdenes pendientes
-    const { count, error } = await supabase
-      .from('ordenes_pos_pendientes')
-      .select('id', { count: 'exact', head: true })
-      .eq('estado', 'pendiente');
-    if (error) {
-      console.error(error);
-      toast.error('No se pudo consultar la cola de Caja');
-      return;
-    }
-    if ((count ?? 0) > 0) {
-      // Hay órdenes pendientes → parquear esta también
-      setClienteRef('');
-      setParkDialogOpen(true);
-      return;
-    }
-    // Caja libre → flujo actual
-    setTicketOpen(false);
-    navigate('/caja');
+    // Carritos POS y Caja están físicamente separados: la única vía de
+    // comunicación es la cola `ordenes_pos_pendientes`. Siempre parqueamos
+    // la orden antes de navegar a Caja para que el cajero la importe desde
+    // la cola en su propio carrito.
+    setClienteRef('');
+    setParkDialogOpen(true);
   };
 
 
