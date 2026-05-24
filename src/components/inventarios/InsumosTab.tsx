@@ -87,9 +87,15 @@ const InsumosTab = ({ isAdmin }: Props) => {
 
   const fetchInsumos = async () => {
     setLoading(true);
-    const { data } = await supabase.from('insumos').select('*').order('nombre');
-    setInsumos((data as Insumo[]) ?? []);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase.from('insumos').select('*').order('nombre');
+      if (error) throw error;
+      setInsumos((data as Insumo[]) ?? []);
+    } catch (err: any) {
+      toast.error('No se pudieron cargar los insumos: ' + (err?.message || 'error desconocido'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchInsumos(); }, []);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -11,6 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Search, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { DataPagination } from '@/components/ui/data-pagination';
 
 interface MermaRow {
@@ -43,14 +44,20 @@ const MermasTab = ({ isAdmin }: Props) => {
   const [page, setPage] = useState(1); // 1-based
   const [porPagina, setPorPagina] = useState(25);
 
-  useEffect(() => {
-    supabase.from('insumos').select('id, nombre').order('nombre')
-      .then(({ data }) => setInsumosList((data as InsumoLite[]) ?? []));
+  const fetchInsumosList = useCallback(async () => {
+    const { data, error } = await supabase.from('insumos').select('id, nombre').order('nombre');
+    if (error) {
+      toast.error('No se pudo cargar el listado de insumos: ' + error.message);
+      return;
+    }
+    setInsumosList((data as InsumoLite[]) ?? []);
   }, []);
 
-  useEffect(() => {
-    const fetch = async () => {
-      setLoading(true);
+  useEffect(() => { fetchInsumosList(); }, [fetchInsumosList]);
+
+  const fetchMermas = useCallback(async () => {
+    setLoading(true);
+    try {
       let query = supabase
         .from('mermas')
         .select('id, cantidad, motivo, fecha, usuario_id, insumo_id, insumos(nombre, unidad_medida)')
@@ -61,25 +68,41 @@ const MermasTab = ({ isAdmin }: Props) => {
       if (fechaDesde) query = query.gte('fecha', `${fechaDesde}T00:00:00-06:00`);
       if (fechaHasta) query = query.lte('fecha', `${fechaHasta}T23:59:59-06:00`);
 
-      const { data: rawMermas } = await query;
+      const { data: rawMermas, error } = await query;
+      if (error) throw error;
       const rows = (rawMermas ?? []) as MermaRow[];
 
       const userIds = [...new Set(rows.map(r => r.usuario_id))];
       if (userIds.length > 0) {
-        const { data: profiles } = await supabase
+        const { data: profiles, error: profErr } = await supabase
           .from('profiles')
           .select('id, nombre')
           .in('id', userIds);
+        if (profErr) throw profErr;
         const profileMap = Object.fromEntries((profiles ?? []).map(p => [p.id, p.nombre]));
         rows.forEach(r => { r.usuario_nombre = profileMap[r.usuario_id] ?? '—'; });
       }
 
       setMermas(rows);
       setPage(1);
+    } catch (err: any) {
+      toast.error('No se pudieron cargar las mermas: ' + (err?.message || 'error desconocido'));
+    } finally {
       setLoading(false);
-    };
-    fetch();
+    }
   }, [insumoFiltro, fechaDesde, fechaHasta]);
+
+  useEffect(() => { fetchMermas(); }, [fetchMermas]);
+
+  // Realtime: refrescar cuando otro usuario registre mermas o cambien insumos
+  useEffect(() => {
+    const channel = supabase
+      .channel('inv-mermas-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mermas' }, () => fetchMermas())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insumos' }, () => { fetchMermas(); fetchInsumosList(); })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchMermas, fetchInsumosList]);
 
   const filtradas = useMemo(() => {
     if (!busqueda.trim()) return mermas;
