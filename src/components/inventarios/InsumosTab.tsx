@@ -69,16 +69,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Insumo | null>(null);
-  // Ajuste manual de stock requiere motivo (RPC ajustar_stock_insumo)
-  const [stockMotivoOpen, setStockMotivoOpen] = useState(false);
-  const [stockMotivo, setStockMotivo] = useState('');
-  const [pendingStockChange, setPendingStockChange] = useState<{
-    insumoId: string;
-    nombre: string;
-    stockPrev: number;
-    stockNuevo: number;
-    payloadRestante: Record<string, any>;
-  } | null>(null);
+  // Stock en edición es read-only. Se ajusta vía Compras o Reportes (auditoría).
 
   // Filtros
   const [busqueda, setBusqueda] = useState('');
@@ -144,8 +135,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
     if (!form.nombre.trim()) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
     // Nota: costo_unitario se calcula automáticamente en el trigger BEFORE UPDATE
-    // y stock_actual NO se incluye en updates (se canaliza vía RPC ajustar_stock_insumo).
-    const stockNuevo = parseFloat(form.stock_actual) || 0;
+    // y stock_actual NO se incluye en updates (solo se setea en INSERT).
     const payloadBase = {
       nombre: form.nombre.trim(),
       unidad_medida: form.unidad_medida,
@@ -157,25 +147,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
     };
 
     if (editingId) {
-      const previo = insumos.find(i => i.id === editingId);
-      const stockCambio = previo && previo.stock_actual !== stockNuevo;
-
-      // Si cambió el stock, interceptar con diálogo de motivo (RPC requiere motivo)
-      if (stockCambio && previo) {
-        setSaving(false);
-        setPendingStockChange({
-          insumoId: editingId,
-          nombre: payloadBase.nombre,
-          stockPrev: previo.stock_actual,
-          stockNuevo,
-          payloadRestante: payloadBase,
-        });
-        setStockMotivo('');
-        setStockMotivoOpen(true);
-        return;
-      }
-
-      // Sin cambio de stock: update directo (sin stock_actual ni costo_unitario)
+      // Update sin stock_actual ni costo_unitario (read-only en edición)
       const { error } = await supabase.from('insumos').update(payloadBase).eq('id', editingId);
       if (error) {
         if (error.code === '23505' || /unique/i.test(error.message)) {
@@ -193,7 +165,8 @@ const InsumosTab = ({ isAdmin }: Props) => {
         });
       }
     } else {
-      // INSERT: el trigger BEFORE UPDATE no aplica, stock_actual permitido
+      // INSERT: stock_actual permitido (alta inicial)
+      const stockNuevo = parseFloat(form.stock_actual) || 0;
       const payloadInsert = { ...payloadBase, stock_actual: stockNuevo };
       const { error } = await supabase.from('insumos').insert(payloadInsert);
       if (error) {
@@ -217,54 +190,6 @@ const InsumosTab = ({ isAdmin }: Props) => {
     fetchInsumos();
   };
 
-  const confirmStockMotivo = async () => {
-    if (!pendingStockChange) return;
-    const motivo = stockMotivo.trim();
-    if (motivo.length < 3) { toast.error('El motivo debe tener al menos 3 caracteres'); return; }
-    setSaving(true);
-
-    // 1) Ajuste de stock vía RPC (atómico + audit)
-    const { error: rpcErr } = await supabase.rpc('ajustar_stock_insumo' as any, {
-      _insumo_id: pendingStockChange.insumoId,
-      _nuevo_stock: pendingStockChange.stockNuevo,
-      _motivo: motivo,
-    });
-    if (rpcErr) {
-      toast.error(rpcErr.message || 'No se pudo ajustar el stock');
-      setSaving(false);
-      return;
-    }
-
-    // 2) Update del resto de campos (sin stock_actual ni costo_unitario)
-    const { error: updErr } = await supabase
-      .from('insumos')
-      .update(pendingStockChange.payloadRestante)
-      .eq('id', pendingStockChange.insumoId);
-    if (updErr) {
-      if (updErr.code === '23505' || /unique/i.test(updErr.message)) {
-        toast.error(`Ya existe un insumo con el nombre "${pendingStockChange.payloadRestante.nombre}"`);
-      } else {
-        toast.error('Stock ajustado, pero falló actualizar el resto del insumo');
-      }
-      setSaving(false);
-      return;
-    }
-
-    await supabase.from('audit_logs').insert({
-      user_id: user!.id,
-      accion: 'actualizar_insumo',
-      descripcion: `Insumo actualizado: ${pendingStockChange.payloadRestante.nombre}`,
-      metadata: { insumo_id: pendingStockChange.insumoId, ...pendingStockChange.payloadRestante },
-    });
-
-    toast.success('Insumo actualizado y stock ajustado');
-    setSaving(false);
-    setStockMotivoOpen(false);
-    setPendingStockChange(null);
-    setStockMotivo('');
-    setDialogOpen(false);
-    fetchInsumos();
-  };
 
 
   const confirmDelete = async () => {
@@ -544,7 +469,16 @@ const InsumosTab = ({ isAdmin }: Props) => {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Stock actual</Label>
-                <Input type="number" min="0" step="0.01" value={form.stock_actual} onChange={e => setForm(f => ({ ...f, stock_actual: e.target.value }))} />
+                {editingId ? (
+                  <>
+                    <Input type="number" value={form.stock_actual} disabled readOnly />
+                    <p className="text-xs text-muted-foreground">
+                      Solo lectura. Ajusta el stock desde Compras (entradas) o Reportes (auditoría física).
+                    </p>
+                  </>
+                ) : (
+                  <Input type="number" min="0" step="0.01" value={form.stock_actual} onChange={e => setForm(f => ({ ...f, stock_actual: e.target.value }))} />
+                )}
               </div>
               <div className="space-y-1">
                 <Label>Stock mínimo</Label>
@@ -552,6 +486,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
               </div>
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
             <Button onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
@@ -569,46 +504,8 @@ const InsumosTab = ({ isAdmin }: Props) => {
         />
       )}
 
-      {/* Motivo de ajuste manual de stock */}
-      <AlertDialog open={stockMotivoOpen} onOpenChange={open => { if (!open && !saving) { setStockMotivoOpen(false); setPendingStockChange(null); setStockMotivo(''); } }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5 text-amber-500" />
-              Ajuste manual de stock
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-left">
-                <p>
-                  Vas a cambiar el stock de <span className="font-semibold text-foreground">{pendingStockChange?.nombre}</span> de{' '}
-                  <span className="font-mono">{pendingStockChange?.stockPrev}</span> a{' '}
-                  <span className="font-mono font-semibold text-foreground">{pendingStockChange?.stockNuevo}</span>.
-                </p>
-                <p className="text-xs">
-                  Este movimiento queda registrado en la bitácora con tu nombre y el motivo capturado.
-                </p>
-                <div className="pt-2">
-                  <Label htmlFor="stock-motivo" className="text-sm">Motivo <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="stock-motivo"
-                    autoFocus
-                    value={stockMotivo}
-                    onChange={e => setStockMotivo(e.target.value)}
-                    placeholder="Ej. Conteo físico, corrección de error de captura..."
-                    maxLength={200}
-                  />
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmStockMotivo} disabled={saving || stockMotivo.trim().length < 3}>
-              {saving ? 'Guardando...' : 'Confirmar ajuste'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+
+
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
