@@ -698,6 +698,60 @@ export type Database = {
           },
         ]
       }
+      ordenes_pos_pendientes: {
+        Row: {
+          caja_id: string | null
+          cancelada_por: string | null
+          cliente_nombre: string | null
+          created_at: string
+          estado: Database["public"]["Enums"]["orden_pos_estado"]
+          folio: number
+          id: string
+          items: Json
+          motivo_cancelacion: string | null
+          notas: string | null
+          tipo_consumo: string
+          total: number
+          updated_at: string
+          usuario_id: string
+          venta_id: string | null
+        }
+        Insert: {
+          caja_id?: string | null
+          cancelada_por?: string | null
+          cliente_nombre?: string | null
+          created_at?: string
+          estado?: Database["public"]["Enums"]["orden_pos_estado"]
+          folio?: number
+          id?: string
+          items?: Json
+          motivo_cancelacion?: string | null
+          notas?: string | null
+          tipo_consumo?: string
+          total?: number
+          updated_at?: string
+          usuario_id: string
+          venta_id?: string | null
+        }
+        Update: {
+          caja_id?: string | null
+          cancelada_por?: string | null
+          cliente_nombre?: string | null
+          created_at?: string
+          estado?: Database["public"]["Enums"]["orden_pos_estado"]
+          folio?: number
+          id?: string
+          items?: Json
+          motivo_cancelacion?: string | null
+          notas?: string | null
+          tipo_consumo?: string
+          total?: number
+          updated_at?: string
+          usuario_id?: string
+          venta_id?: string | null
+        }
+        Relationships: []
+      }
       paquete_componentes: {
         Row: {
           cantidad: number
@@ -1536,6 +1590,7 @@ export type Database = {
       coworking_estado: "activo" | "finalizado" | "cancelado" | "pendiente_pago"
       kds_estado: "pendiente" | "en_preparacion" | "listo" | "expirada"
       metodo_pago: "efectivo" | "tarjeta" | "transferencia" | "mixto"
+      orden_pos_estado: "pendiente" | "cobrada" | "cancelada"
       reservacion_estado:
         | "pendiente"
         | "confirmada"
@@ -1689,6 +1744,7 @@ export const Constants = {
       coworking_estado: ["activo", "finalizado", "cancelado", "pendiente_pago"],
       kds_estado: ["pendiente", "en_preparacion", "listo", "expirada"],
       metodo_pago: ["efectivo", "tarjeta", "transferencia", "mixto"],
+      orden_pos_estado: ["pendiente", "cobrada", "cancelada"],
       reservacion_estado: [
         "pendiente",
         "confirmada",
