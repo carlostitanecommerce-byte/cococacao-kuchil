@@ -624,9 +624,12 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             <span className="text-primary">${summary!.total.toFixed(2)}</span>
           </div>
 
-          <div className="flex gap-4 text-xs text-muted-foreground">
+          <div className="flex gap-4 text-xs text-muted-foreground flex-wrap">
             <span>Pago: {metodoPagoLabel[summary!.metodo_pago]}</span>
             <span>Consumo: {tipoConsumoLabel[summary!.tipo_consumo]}</span>
+            {summary!.tipo_consumo === 'delivery' && nombrePlataforma && (
+              <span>Plataforma: {nombrePlataforma}</span>
+            )}
           </div>
 
           {summary!.metodo_pago === 'mixto' && summary!.mixed_payment && (
