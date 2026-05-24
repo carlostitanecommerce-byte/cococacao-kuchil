@@ -7,7 +7,10 @@ import { StickyCheckoutBar } from '@/components/pos/StickyCheckoutBar';
 import { PaqueteSelectorDialog } from '@/components/pos/PaqueteSelectorDialog';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { ArrowRight, ClipboardCheck } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ArrowRight, ClipboardCheck, Inbox } from 'lucide-react';
 import { toast } from 'sonner';
 import { verificarStock } from '@/hooks/useValidarStock';
 import { useCartStore } from '@/stores/cartStore';
@@ -336,14 +339,79 @@ const PosPage = () => {
     }
   }, [coworkingSessionId, clienteNombre, items, clear, navigate]);
 
-  const goToCheckout = () => {
-    setTicketOpen(false);
-    if (isOpenAccount) {
-      chargeToOpenAccount();
-    } else {
-      navigate('/caja');
+  const [parkDialogOpen, setParkDialogOpen] = useState(false);
+  const [clienteRef, setClienteRef] = useState('');
+  const [parking, setParking] = useState(false);
+
+  const parkOrder = useCallback(async () => {
+    if (!user?.id || items.length === 0) return;
+    setParking(true);
+    try {
+      const { data: cajaAbierta } = await supabase
+        .from('cajas')
+        .select('id')
+        .eq('usuario_id', user.id)
+        .eq('estado', 'abierta')
+        .maybeSingle();
+
+      const { data, error } = await supabase
+        .from('ordenes_pos_pendientes')
+        .insert({
+          usuario_id: user.id,
+          caja_id: cajaAbierta?.id ?? null,
+          cliente_nombre: clienteRef.trim() || null,
+          items: items as any,
+          total: subtotal,
+          tipo_consumo: 'sitio',
+        })
+        .select('folio')
+        .single();
+
+      if (error) {
+        console.error(error);
+        toast.error(error.message || 'No se pudo enviar a Caja');
+        return;
+      }
+
+      const folioStr = String(data.folio).padStart(4, '0');
+      toast.success(`Orden #${folioStr} enviada a Caja`);
+      clear();
+      setClienteRef('');
+      setParkDialogOpen(false);
+      setTicketOpen(false);
+    } finally {
+      setParking(false);
     }
+  }, [user?.id, items, subtotal, clienteRef, clear]);
+
+  const goToCheckout = async () => {
+    if (isOpenAccount) {
+      setTicketOpen(false);
+      chargeToOpenAccount();
+      return;
+    }
+    if (items.length === 0) return;
+    // Detectar si Caja está ocupada con órdenes pendientes
+    const { count, error } = await supabase
+      .from('ordenes_pos_pendientes')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado', 'pendiente');
+    if (error) {
+      console.error(error);
+      toast.error('No se pudo consultar la cola de Caja');
+      return;
+    }
+    if ((count ?? 0) > 0) {
+      // Hay órdenes pendientes → parquear esta también
+      setClienteRef('');
+      setParkDialogOpen(true);
+      return;
+    }
+    // Caja libre → flujo actual
+    setTicketOpen(false);
+    navigate('/caja');
   };
+
 
   const checkoutLabel = isOpenAccount ? 'Cargar a Cuenta' : 'Procesar pago en Caja';
   const checkoutLabelMobile = isOpenAccount ? 'Cargar a Cuenta' : 'Cobrar';
@@ -357,6 +425,53 @@ const PosPage = () => {
       onConfirm={handlePaqueteConfirm}
     />
   );
+
+  const parkDialog = (
+    <Dialog open={parkDialogOpen} onOpenChange={(o) => { if (!parking) setParkDialogOpen(o); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Inbox className="h-5 w-5 text-primary" />
+            Enviar orden a Caja
+          </DialogTitle>
+          <DialogDescription>
+            Caja tiene órdenes pendientes de cobro. Esta orden se enviará a la cola
+            para no sobrescribir el ticket activo.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="cliente-ref" className="text-sm">
+            Nombre o referencia (opcional)
+          </Label>
+          <Input
+            id="cliente-ref"
+            value={clienteRef}
+            onChange={(e) => setClienteRef(e.target.value.slice(0, 60))}
+            placeholder="Ej: Mesa 3, Juan, Para llevar..."
+            maxLength={60}
+            autoFocus
+            disabled={parking}
+          />
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Total: ${subtotal.toFixed(2)} · {items.reduce((s, i) => s + i.cantidad, 0)} producto(s)
+          </p>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setParkDialogOpen(false)}
+            disabled={parking}
+          >
+            Cancelar
+          </Button>
+          <Button onClick={parkOrder} disabled={parking}>
+            {parking ? 'Enviando...' : 'Enviar a Caja'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
 
   if (isDesktop) {
     return (
@@ -390,9 +505,11 @@ const PosPage = () => {
           </div>
         </div>
         {paqueteDialog}
+        {parkDialog}
       </>
     );
   }
+
 
   // Tablet / mobile layout: products full-width + bottom bar + ticket Sheet
   return (
@@ -439,6 +556,7 @@ const PosPage = () => {
         </Sheet>
       </div>
       {paqueteDialog}
+      {parkDialog}
     </>
   );
 };
