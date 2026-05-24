@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -20,7 +20,21 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
   const { user, profile } = useAuth();
   const [saving, setSaving] = useState(false);
   const [ticket, setTicket] = useState<VentaSummary | null>(null);
+  const [nombrePlataforma, setNombrePlataforma] = useState<string | null>(null);
   const inFlightRef = useRef(false);
+
+  useEffect(() => {
+    const pid = summary?.plataforma_id;
+    if (!pid) { setNombrePlataforma(null); return; }
+    let cancelled = false;
+    supabase
+      .from('plataformas_delivery')
+      .select('nombre')
+      .eq('id', pid)
+      .maybeSingle()
+      .then(({ data }) => { if (!cancelled) setNombrePlataforma(data?.nombre ?? null); });
+    return () => { cancelled = true; };
+  }, [summary?.plataforma_id]);
 
   if (!summary && !ticket) return null;
 
@@ -237,6 +251,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         monto_transferencia: montoTransferencia,
         coworking_session_id: summary.coworking_session_id ?? null,
         caja_id: summary.caja_id ?? null,
+        plataforma_id: summary.tipo_consumo === 'delivery' ? (summary.plataforma_id ?? null) : null,
       };
       const isCoworkingCheckout = !!summary.coworking_session_id;
       const openIds = openItems.map(it => it.open_account_detalle_id!).filter(Boolean);
@@ -609,9 +624,12 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             <span className="text-primary">${summary!.total.toFixed(2)}</span>
           </div>
 
-          <div className="flex gap-4 text-xs text-muted-foreground">
+          <div className="flex gap-4 text-xs text-muted-foreground flex-wrap">
             <span>Pago: {metodoPagoLabel[summary!.metodo_pago]}</span>
             <span>Consumo: {tipoConsumoLabel[summary!.tipo_consumo]}</span>
+            {summary!.tipo_consumo === 'delivery' && nombrePlataforma && (
+              <span>Plataforma: {nombrePlataforma}</span>
+            )}
           </div>
 
           {summary!.metodo_pago === 'mixto' && summary!.mixed_payment && (
