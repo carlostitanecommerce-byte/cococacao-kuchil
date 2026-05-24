@@ -22,6 +22,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
   const [ticket, setTicket] = useState<VentaSummary | null>(null);
   const [nombrePlataforma, setNombrePlataforma] = useState<string | null>(null);
   const inFlightRef = useRef(false);
+  const ventaIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const pid = summary?.plataforma_id;
