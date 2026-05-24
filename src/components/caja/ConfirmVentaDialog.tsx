@@ -405,7 +405,9 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
 
   const handleCloseTicket = () => {
     setTicket(null);
-    onSuccess();
+    const id = ventaIdRef.current;
+    ventaIdRef.current = null;
+    onSuccess(id ?? '');
     onClose();
   };
 
