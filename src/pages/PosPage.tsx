@@ -339,18 +339,79 @@ const PosPage = () => {
     }
   }, [coworkingSessionId, clienteNombre, items, clear, navigate]);
 
-  const goToCheckout = () => {
-    setTicketOpen(false);
-    if (isOpenAccount) {
-      chargeToOpenAccount();
-    } else {
-      navigate('/caja');
+  const [parkDialogOpen, setParkDialogOpen] = useState(false);
+  const [clienteRef, setClienteRef] = useState('');
+  const [parking, setParking] = useState(false);
+
+  const parkOrder = useCallback(async () => {
+    if (!user?.id || items.length === 0) return;
+    setParking(true);
+    try {
+      const { data: cajaAbierta } = await supabase
+        .from('cajas')
+        .select('id')
+        .eq('usuario_id', user.id)
+        .eq('estado', 'abierta')
+        .maybeSingle();
+
+      const { data, error } = await supabase
+        .from('ordenes_pos_pendientes')
+        .insert({
+          usuario_id: user.id,
+          caja_id: cajaAbierta?.id ?? null,
+          cliente_nombre: clienteRef.trim() || null,
+          items: items as any,
+          total: subtotal,
+          tipo_consumo: 'sitio',
+        })
+        .select('folio')
+        .single();
+
+      if (error) {
+        console.error(error);
+        toast.error(error.message || 'No se pudo enviar a Caja');
+        return;
+      }
+
+      const folioStr = String(data.folio).padStart(4, '0');
+      toast.success(`Orden #${folioStr} enviada a Caja`);
+      clear();
+      setClienteRef('');
+      setParkDialogOpen(false);
+      setTicketOpen(false);
+    } finally {
+      setParking(false);
     }
+  }, [user?.id, items, subtotal, clienteRef, clear]);
+
+  const goToCheckout = async () => {
+    if (isOpenAccount) {
+      setTicketOpen(false);
+      chargeToOpenAccount();
+      return;
+    }
+    if (items.length === 0) return;
+    // Detectar si Caja está ocupada con órdenes pendientes
+    const { count, error } = await supabase
+      .from('ordenes_pos_pendientes')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado', 'pendiente');
+    if (error) {
+      console.error(error);
+      toast.error('No se pudo consultar la cola de Caja');
+      return;
+    }
+    if ((count ?? 0) > 0) {
+      // Hay órdenes pendientes → parquear esta también
+      setClienteRef('');
+      setParkDialogOpen(true);
+      return;
+    }
+    // Caja libre → flujo actual
+    setTicketOpen(false);
+    navigate('/caja');
   };
 
-  const checkoutLabel = isOpenAccount ? 'Cargar a Cuenta' : 'Procesar pago en Caja';
-  const checkoutLabelMobile = isOpenAccount ? 'Cargar a Cuenta' : 'Cobrar';
-  const CheckoutIcon = isOpenAccount ? ClipboardCheck : ArrowRight;
 
   const paqueteDialog = (
     <PaqueteSelectorDialog
