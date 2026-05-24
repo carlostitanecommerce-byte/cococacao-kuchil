@@ -62,22 +62,12 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
       return;
     }
     const fetchVentas = async () => {
-      // Ventas vinculadas al turno actual + ventas legadas (sin caja_id) en el rango.
-      const [{ data: linked }, { data: legacy }] = await Promise.all([
-        supabase
-          .from('ventas')
-          .select('monto_efectivo, monto_tarjeta, monto_transferencia, total_neto, iva, comisiones_bancarias, usuario_id')
-          .eq('estado', 'completada' as any)
-          .eq('caja_id', caja.id),
-        supabase
-          .from('ventas')
-          .select('monto_efectivo, monto_tarjeta, monto_transferencia, total_neto, iva, comisiones_bancarias, usuario_id')
-          .eq('estado', 'completada' as any)
-          .is('caja_id', null)
-          .gte('fecha', caja.fecha_apertura)
-          .lte('fecha', nowCDMX()),
-      ]);
-      const data = [...(linked ?? []), ...(legacy ?? [])];
+      const { data } = await supabase
+        .from('ventas')
+        .select('monto_efectivo, monto_tarjeta, monto_transferencia, total_neto, iva, comisiones_bancarias, usuario_id')
+        .eq('estado', 'completada' as any)
+        .eq('caja_id', caja.id);
+
       if (data) {
         setVentasEfectivo(data.reduce((s, v) => s + (v.monto_efectivo ?? 0), 0));
         setVentasTarjeta(data.reduce((s, v) => s + (v.monto_tarjeta ?? 0), 0));
