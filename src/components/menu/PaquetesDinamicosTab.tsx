@@ -89,14 +89,24 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
   const [saving, setSaving] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<Paquete | null>(null);
   const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [confirmZeroPriceOpen, setConfirmZeroPriceOpen] = useState(false);
 
   const fetchPaquetes = useCallback(async () => {
     setLoading(true);
-    const { data: paqs } = await supabase
+    const { data: paqs, error } = await supabase
       .from('productos')
       .select('*')
       .eq('tipo', 'paquete')
       .order('nombre');
+    if (error) {
+      setFetchError(error.message);
+      setPaquetes([]);
+      toast.error('No se pudieron cargar los paquetes');
+      setLoading(false);
+      return;
+    }
+    setFetchError(null);
     const list = (paqs as Paquete[]) ?? [];
     if (list.length > 0) {
       const { data: grps } = await supabase
@@ -116,7 +126,10 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
     supabase.from('productos')
       .select('id, nombre, categoria, costo_total, precio_venta, activo')
       .eq('tipo', 'simple').eq('activo', true).order('nombre')
-      .then(({ data }) => setProductosSimples((data as ProductoSimple[]) ?? []));
+      .then(({ data, error }) => {
+        if (error) toast.error('No se pudieron cargar los productos base');
+        else setProductosSimples((data as ProductoSimple[]) ?? []);
+      });
   }, [fetchPaquetes]);
 
   useEffect(() => {
