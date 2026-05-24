@@ -96,7 +96,7 @@ export function CajaCheckoutPanel() {
     [plataformas, plataformaId]
   );
 
-  const subtotal = useMemo(() => items.reduce((s, i) => s + i.subtotal, 0), [items]);
+  const subtotal = useMemo(() => displayItems.reduce((s, i) => s + i.subtotal, 0), [displayItems]);
   const openAccountCount = useMemo(
     () => items.filter((i) => !!i.open_account_detalle_id).length,
     [items]
