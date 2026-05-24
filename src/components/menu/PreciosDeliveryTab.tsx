@@ -338,10 +338,10 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
                   <TableRow>
                     <TableHead colSpan={isAdmin ? 4 : 3} />
                     {plataformasActivas.map(pl => (
-                      <>
-                        <TableHead key={`${pl.id}-p`} className="text-center text-[11px] border-l">Precio</TableHead>
-                        <TableHead key={`${pl.id}-m`} className="text-center text-[11px]">Margen Neto</TableHead>
-                      </>
+                      <Fragment key={pl.id}>
+                        <TableHead className="text-center text-[11px] border-l">Precio</TableHead>
+                        <TableHead className="text-center text-[11px]">Margen Neto</TableHead>
+                      </Fragment>
                     ))}
                   </TableRow>
                 </TableHeader>
