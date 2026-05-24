@@ -1,29 +1,48 @@
-## Plan: Stock Actual Read-Only en Editar Insumo
+# Plan: 3 hallazgos confirmados en Menú / Inventarios
 
-### Contexto
-Actualmente, el diálogo de editar insumo permite modificar el campo `stock_actual` directamente. El sistema intercepta ese cambio para exigir un motivo y canalizarlo por la RPC `ajustar_stock_insumo`. El usuario solicita que en el diálogo de **editar**, `stock_actual` sea de solo lectura, porque los ajustes de stock deben hacerse exclusivamente desde:
-- **Compras**: para entradas por compra
-- **Reportes**: para ajustes por auditoría física
+Confirmé los 3 problemas leyendo el código actual:
 
-En el diálogo de **nuevo insumo**, `stock_actual` seguirá siendo editable para dar de alta el stock inicial.
+- `CategoriasManager.confirmDelete` ejecuta `delete` aunque `uso_productos > 0` (solo muestra advertencia).
+- `fetchProductos` (ProductosTab) y `fetchPaquetes` (PaquetesDinamicosTab) **no leen** el campo `error` de Supabase — si falla la red o RLS, la tabla queda vacía sin aviso.
+- `handleSave` en ambos (`ProductosTab` y `PaquetesDinamicosTab`) guarda con `precio_venta = 0` sin ninguna confirmación.
 
-### Cambios a realizar
+---
 
-1. **UI del diálogo CRUD** (`InsumosTab.tsx`):
-   - En el formulario del diálogo, renderizar `stock_actual` condicionalmente:
-     - **Modo edición (`editingId !== null`)**: mostrar el valor actual como texto estático (o input `disabled`) en lugar de un campo editable. El input tendrá atributo `disabled` o se reemplazará por un label con el valor.
-     - **Modo nuevo (`editingId === null`)**: mantener el input editable existente.
-   - Ajustar el label para indicar "Stock actual" en ambos modos.
+## 1. Bloquear borrado duro de categorías en uso
 
-2. **Lógica de guardado** (`handleSave`):
-   - Al guardar en modo **edición**, ya no es necesario interceptar cambios de stock ni mostrar el diálogo de motivo, porque el campo es read-only.
-   - Eliminar el `useState` y la lógica asociada a `pendingStockChange`, `stockMotivoOpen`, `stockMotivo` y la función `confirmStockMotivo`.
-   - Simplificar `handleSave`: en edición, enviar solo `payloadBase` sin `stock_actual`. En inserción, enviar `payloadBase` con `stock_actual`.
+**Archivo:** `src/components/categorias/CategoriasManager.tsx`
 
-3. **Limpieza de estado innecesario**:
-   - Eliminar estados: `stockMotivoOpen`, `stockMotivo`, `pendingStockChange`.
-   - Eliminar función: `confirmStockMotivo`.
-   - Eliminar el `AlertDialog` de ajuste manual de stock (líneas ~573-611).
+- En la tabla, calcular `enUso = (cat.ambito==='insumo' ? uso_insumos : uso_productos) > 0`.
+- Si `enUso`: el botón **Eliminar** se renderiza `disabled`, envuelto en `<Tooltip>` con mensaje: *"No se puede eliminar: hay N {insumos|productos} usando esta categoría. Renombra la categoría o reasigna los elementos primero."*
+- Si no está en uso: comportamiento actual (abre `AlertDialog` y elimina).
+- Simplificar el `AlertDialog` de confirmación: ya no necesita la rama "está en uso" porque nunca llegará ahí; queda solo el mensaje estándar.
+- Como defensa en `confirmDelete`: re-verificar `enUso` y abortar con `toast.error` si por algún motivo se intenta (evita race con realtime).
 
-### Archivos afectados
-- `src/components/inventarios/InsumosTab.tsx`
+## 2. Manejo de errores en fetch inicial de Productos y Paquetes
+
+**Archivos:** `src/components/inventarios/ProductosTab.tsx`, `src/components/menu/PaquetesDinamicosTab.tsx`
+
+- Añadir estado `fetchError: string | null` en ambos componentes.
+- En `fetchProductos` / `fetchPaquetes`: destructurar `{ data, error }`; si `error`, setear `fetchError(error.message)`, mostrar `toast.error('No se pudo cargar...')` y dejar la lista vacía. Si OK, limpiar `fetchError`.
+- En el cuerpo de la tabla, cuando `!loading && fetchError`: renderizar una fila con icono de alerta, el mensaje y un botón **Reintentar** que llama nuevamente al fetch (`fetchProductos()` / `fetchPaquetes()`).
+- También capturar `error` en el fetch secundario de `insumos` (ProductosTab) y `productos simples` (PaquetesDinamicosTab) con `toast.error` (no bloquea la UI pero avisa).
+
+## 3. Confirmación al guardar con precio $0
+
+**Archivos:** `src/components/inventarios/ProductosTab.tsx`, `src/components/menu/PaquetesDinamicosTab.tsx`
+
+- Añadir estado `confirmZeroPriceOpen: boolean` y refactor: extraer el cuerpo actual de `handleSave` a `doSave()`.
+- Nuevo `handleSave`:
+  - Validaciones síncronas (nombre, grupos, etc.) primero.
+  - Si `parseFloat(form.precio_venta) === 0` → `setConfirmZeroPriceOpen(true)` y `return` (no marca `saving` todavía).
+  - Si no, llamar `doSave()`.
+- Agregar `<AlertDialog>` "¿Guardar con precio $0.00? Este artículo no generará ingreso al venderse. Úsalo solo para cortesías o pruebas." con acciones **Cancelar** / **Sí, guardar gratis** → al confirmar cierra el diálogo y llama `doSave()`.
+
+---
+
+## Archivos afectados
+- `src/components/categorias/CategoriasManager.tsx`
+- `src/components/inventarios/ProductosTab.tsx`
+- `src/components/menu/PaquetesDinamicosTab.tsx`
+
+Sin migraciones ni cambios de backend.

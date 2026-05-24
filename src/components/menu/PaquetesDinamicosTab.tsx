@@ -24,7 +24,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Plus, Pencil, Trash2, Package, Search, X, ArrowUp, ArrowDown, Layers, ChevronLeft, ChevronRight,
+  Plus, Pencil, Trash2, Package, Search, X, ArrowUp, ArrowDown, Layers, ChevronLeft, ChevronRight, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -89,14 +89,24 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
   const [saving, setSaving] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<Paquete | null>(null);
   const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [confirmZeroPriceOpen, setConfirmZeroPriceOpen] = useState(false);
 
   const fetchPaquetes = useCallback(async () => {
     setLoading(true);
-    const { data: paqs } = await supabase
+    const { data: paqs, error } = await supabase
       .from('productos')
       .select('*')
       .eq('tipo', 'paquete')
       .order('nombre');
+    if (error) {
+      setFetchError(error.message);
+      setPaquetes([]);
+      toast.error('No se pudieron cargar los paquetes');
+      setLoading(false);
+      return;
+    }
+    setFetchError(null);
     const list = (paqs as Paquete[]) ?? [];
     if (list.length > 0) {
       const { data: grps } = await supabase
@@ -116,7 +126,10 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
     supabase.from('productos')
       .select('id, nombre, categoria, costo_total, precio_venta, activo')
       .eq('tipo', 'simple').eq('activo', true).order('nombre')
-      .then(({ data }) => setProductosSimples((data as ProductoSimple[]) ?? []));
+      .then(({ data, error }) => {
+        if (error) toast.error('No se pudieron cargar los productos base');
+        else setProductosSimples((data as ProductoSimple[]) ?? []);
+      });
   }, [fetchPaquetes]);
 
   useEffect(() => {
@@ -258,7 +271,15 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
         return;
       }
     }
+    const precioCheck = parseFloat(form.precio_venta) || 0;
+    if (precioCheck === 0) {
+      setConfirmZeroPriceOpen(true);
+      return;
+    }
+    await doSave();
+  };
 
+  const doSave = async () => {
     setSaving(true);
     const precio = parseFloat(form.precio_venta) || 0;
     const costo = calcCosto(grupos);
@@ -468,6 +489,17 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
+              ) : fetchError ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8">
+                    <div className="flex flex-col items-center gap-3 text-sm">
+                      <AlertTriangle className="h-6 w-6 text-destructive" />
+                      <div className="text-muted-foreground">No se pudieron cargar los paquetes.</div>
+                      <div className="text-xs text-muted-foreground/80 max-w-md">{fetchError}</div>
+                      <Button size="sm" variant="outline" onClick={fetchPaquetes}>Reintentar</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ) : filtrados.length === 0 ? (
                 <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados' : 'Sin paquetes registrados'}</TableCell></TableRow>
               ) : paquetesPagina.map(p => (
@@ -723,6 +755,23 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
                 Eliminar
               </AlertDialogAction>
             )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmZeroPriceOpen} onOpenChange={setConfirmZeroPriceOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Guardar con precio $0.00?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este paquete no generará ingreso al venderse. Úsalo solo para cortesías o pruebas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmZeroPriceOpen(false); doSave(); }}>
+              Sí, guardar gratis
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -190,6 +190,13 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    const usoActual = deleteTarget.ambito === 'insumo' ? (deleteTarget.uso_insumos ?? 0) : (deleteTarget.uso_productos ?? 0);
+    if (usoActual > 0) {
+      toast.error('No se puede eliminar: la categoría está en uso');
+      setDeleteTarget(null);
+      fetchCategorias();
+      return;
+    }
     const { error } = await supabase.from('categorias_maestras').delete().eq('id', deleteTarget.id);
     if (error) {
       toast.error('Error al eliminar categoría');
@@ -312,9 +319,24 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
                           <Button variant="ghost" size="icon" onClick={() => openEdit(cat)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(cat)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {usoTotal > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span tabIndex={0}>
+                                  <Button variant="ghost" size="icon" disabled>
+                                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs max-w-xs">
+                                No se puede eliminar: hay {usoTotal} {cat.ambito === 'insumo' ? 'insumo' : 'producto'}{usoTotal === 1 ? '' : 's'} usando esta categoría. Renombra la categoría o reasigna los elementos primero.
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(cat)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     )}
@@ -391,17 +413,7 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar categoría</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteTarget && ((deleteTarget.ambito === 'insumo' ? deleteTarget.uso_insumos : deleteTarget.uso_productos) ?? 0) > 0 ? (
-                <>
-                  La categoría <strong>"{deleteTarget.nombre}"</strong> ({AMBITO_LABEL[deleteTarget.ambito]}) está en uso por{' '}
-                  {deleteTarget.ambito === 'insumo'
-                    ? `${deleteTarget.uso_insumos} insumo(s)`
-                    : `${deleteTarget.uso_productos} producto(s)`}.
-                  Quedarán con el texto "{deleteTarget.nombre}" como categoría huérfana hasta reasignarse manualmente. ¿Continuar?
-                </>
-              ) : (
-                <>¿Eliminar la categoría "{deleteTarget?.nombre}"? Esta acción no se puede deshacer.</>
-              )}
+              ¿Eliminar la categoría "{deleteTarget?.nombre}"? Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

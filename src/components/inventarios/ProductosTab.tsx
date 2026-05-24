@@ -97,17 +97,29 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     await supabase.storage.from('productos').remove(paths);
   };
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   const fetchProductos = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('productos').select('*').eq('tipo', 'simple').order('nombre');
-    setProductos((data as Producto[]) ?? []);
+    const { data, error } = await supabase.from('productos').select('*').eq('tipo', 'simple').order('nombre');
+    if (error) {
+      setFetchError(error.message);
+      setProductos([]);
+      toast.error('No se pudieron cargar los productos');
+    } else {
+      setFetchError(null);
+      setProductos((data as Producto[]) ?? []);
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => {
     fetchProductos();
     supabase.from('insumos').select('id, nombre, unidad_medida, costo_unitario').order('nombre')
-      .then(({ data }) => setInsumos((data as Insumo[]) ?? []));
+      .then(({ data, error }) => {
+        if (error) toast.error('No se pudieron cargar los insumos');
+        else setInsumos((data as Insumo[]) ?? []);
+      });
   }, [fetchProductos]);
 
   // M5: Realtime — productos (cambios de costo/margen vía trigger), recetas e insumos
@@ -212,8 +224,19 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
 
   const removeLine = (idx: number) => setReceta(r => r.filter((_, i) => i !== idx));
 
+  const [confirmZeroPriceOpen, setConfirmZeroPriceOpen] = useState(false);
+
   const handleSave = async () => {
     if (!form.nombre.trim()) { toast.error('El nombre es obligatorio'); return; }
+    const precioCheck = parseFloat(form.precio_venta) || 0;
+    if (precioCheck === 0) {
+      setConfirmZeroPriceOpen(true);
+      return;
+    }
+    await doSave();
+  };
+
+  const doSave = async () => {
     setSaving(true);
     const precio = parseFloat(form.precio_venta) || 0;
     const costo = calcCosto(receta);
@@ -631,6 +654,17 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
+              ) : fetchError ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <div className="flex flex-col items-center gap-3 text-sm">
+                      <AlertTriangle className="h-6 w-6 text-destructive" />
+                      <div className="text-muted-foreground">No se pudieron cargar los productos.</div>
+                      <div className="text-xs text-muted-foreground/80 max-w-md">{fetchError}</div>
+                      <Button size="sm" variant="outline" onClick={fetchProductos}>Reintentar</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ) : filtrados.length === 0 ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados para la búsqueda' : 'Sin productos registrados'}</TableCell></TableRow>
               ) : productosPagina.map(p => (
@@ -975,6 +1009,24 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={confirmZeroPriceOpen} onOpenChange={setConfirmZeroPriceOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Guardar con precio $0.00?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este producto no generará ingreso al venderse. Úsalo solo para cortesías o pruebas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmZeroPriceOpen(false); doSave(); }}>
+              Sí, guardar gratis
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
 
       {/* Auditoría: productos sin receta */}
       <Dialog open={auditDialogOpen} onOpenChange={setAuditDialogOpen}>
