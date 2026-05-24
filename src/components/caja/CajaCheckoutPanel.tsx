@@ -146,7 +146,14 @@ export function CajaCheckoutPanel() {
 
   const handleTipoConsumoChange = (v: TipoConsumo) => {
     setTipoConsumo(v);
-    if (v !== 'delivery') setPlataformaId(null);
+    if (v !== 'delivery') {
+      setPlataformaId(null);
+    } else {
+      // Delivery siempre se liquida por transferencia desde la plataforma.
+      setMetodoPago('transferencia');
+      setMixed({ efectivo: 0, tarjeta: 0, transferencia: 0 });
+      setPropinaEnDigital(false);
+    }
   };
 
   const isReadOnlyLine = (item: CartItem) =>
