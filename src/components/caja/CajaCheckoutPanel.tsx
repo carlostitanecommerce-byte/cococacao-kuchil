@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,6 +44,19 @@ export function CajaCheckoutPanel() {
   const [summary, setSummary] = useState<VentaSummary | null>(null);
   const [incrementing, setIncrementing] = useState<string | null>(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [plataformaId, setPlataformaId] = useState<string | null>(null);
+  const [plataformas, setPlataformas] = useState<{ id: string; nombre: string }[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from('plataformas_delivery')
+      .select('id,nombre')
+      .eq('activo', true)
+      .order('nombre')
+      .then(({ data, error }) => {
+        if (!error && data) setPlataformas(data);
+      });
+  }, []);
 
   const subtotal = useMemo(() => items.reduce((s, i) => s + i.subtotal, 0), [items]);
   const openAccountCount = useMemo(
@@ -91,6 +104,11 @@ export function CajaCheckoutPanel() {
     // Solo "tarjeta" permite mantener propinaEnDigital implícito; en cualquier
     // otro método reseteamos para que el cajero lo marque explícitamente si aplica.
     if (v !== 'tarjeta') setPropinaEnDigital(false);
+  };
+
+  const handleTipoConsumoChange = (v: TipoConsumo) => {
+    setTipoConsumo(v);
+    if (v !== 'delivery') setPlataformaId(null);
   };
 
   const isReadOnlyLine = (item: CartItem) =>
@@ -164,7 +182,10 @@ export function CajaCheckoutPanel() {
       toast.error(`El monto de tarjeta debe cubrir al menos la propina digital ($${propina.toFixed(2)}).`);
       return;
     }
-
+    if (tipoConsumo === 'delivery' && !plataformaId) {
+      toast.error('Selecciona la plataforma de delivery');
+      return;
+    }
 
     const ventaSummary: VentaSummary = {
       items,
@@ -179,6 +200,7 @@ export function CajaCheckoutPanel() {
       propina_en_digital: propinaEnDigital,
       coworking_session_id: coworkingSessionId ?? undefined,
       caja_id: cajaAbierta.id,
+      plataforma_id: tipoConsumo === 'delivery' ? plataformaId ?? undefined : undefined,
     };
     setSummary(ventaSummary);
   };
@@ -191,6 +213,7 @@ export function CajaCheckoutPanel() {
     setPropinaManual('');
     setPropinaEnDigital(false);
     setMixed({ efectivo: 0, tarjeta: 0, transferencia: 0 });
+    setPlataformaId(null);
   };
 
   const showPropinaDigitalCheckbox =
@@ -296,7 +319,7 @@ export function CajaCheckoutPanel() {
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label className="text-xs">Consumo</Label>
-              <Select value={tipoConsumo} onValueChange={(v) => setTipoConsumo(v as TipoConsumo)}>
+              <Select value={tipoConsumo} onValueChange={(v) => handleTipoConsumoChange(v as TipoConsumo)}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="sitio">En sitio</SelectItem>
@@ -318,6 +341,20 @@ export function CajaCheckoutPanel() {
               </Select>
             </div>
           </div>
+
+          {tipoConsumo === 'delivery' && (
+            <div className="space-y-1">
+              <Label className="text-xs">Plataforma</Label>
+              <Select value={plataformaId ?? ''} onValueChange={setPlataformaId}>
+                <SelectTrigger className="h-9"><SelectValue placeholder="Selecciona plataforma" /></SelectTrigger>
+                <SelectContent>
+                  {plataformas.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {metodoPago === 'mixto' && (
             <div className="space-y-2 p-2 rounded-md bg-muted/30 border border-border">
