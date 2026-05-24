@@ -226,7 +226,7 @@ export function CajaCheckoutPanel() {
     }
 
     const ventaSummary: VentaSummary = {
-      items,
+      items: displayItems,
       subtotal,
       iva: +(subtotal - subtotal / (1 + config.iva_porcentaje / 100)).toFixed(2),
       comision,
