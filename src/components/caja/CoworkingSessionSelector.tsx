@@ -385,24 +385,15 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
       <AlertDialog open={!!pendingImport} onOpenChange={(o) => !o && setPendingImport(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Reemplazar el carrito actual?</AlertDialogTitle>
+            <AlertDialogTitle>Tienes un ticket en progreso</AlertDialogTitle>
             <AlertDialogDescription>
               El carrito tiene {cartItemCount} producto{cartItemCount !== 1 ? 's' : ''} sin guardar.
-              Si importas la sesión de <span className="font-medium">{pendingImport?.cliente_nombre}</span>,
-              el carrito actual se reemplazará y perderás esos productos.
+              Cóbralo o presiona "Limpiar" antes de importar la sesión de{' '}
+              <span className="font-medium">{pendingImport?.cliente_nombre}</span>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                const target = pendingImport;
-                setPendingImport(null);
-                if (target) await doImport(target);
-              }}
-            >
-              Reemplazar e importar
-            </AlertDialogAction>
+            <AlertDialogAction onClick={() => setPendingImport(null)}>Entendido</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
