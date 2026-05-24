@@ -24,7 +24,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Plus, Pencil, Trash2, Package, Search, X, ArrowUp, ArrowDown, Layers, ChevronLeft, ChevronRight,
+  Plus, Pencil, Trash2, Package, Search, X, ArrowUp, ArrowDown, Layers, ChevronLeft, ChevronRight, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
