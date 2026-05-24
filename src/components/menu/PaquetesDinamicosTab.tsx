@@ -610,13 +610,6 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
             )}
 
             {grupos.map((g, gi) => {
-              const search = (g._search ?? '').toLowerCase();
-              const sugerencias = search.length > 0
-                ? productosSimples.filter(p =>
-                    p.nombre.toLowerCase().includes(search) &&
-                    !g.opciones.some(o => o.producto_id === p.id)
-                  ).slice(0, 8)
-                : [];
               return (
                 <Card key={gi} className="border-2">
                   <CardContent className="p-3 space-y-3">
@@ -639,6 +632,7 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
                         <Button variant="ghost" size="icon" onClick={() => removeGrupo(gi)}><X className="h-4 w-4 text-destructive" /></Button>
                       </div>
                     </div>
+
 
                     {/* Buscador de opciones */}
                     <div className="relative">
