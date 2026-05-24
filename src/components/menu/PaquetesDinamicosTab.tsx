@@ -738,4 +738,58 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
   );
 };
 
+interface OpcionPickerProps {
+  search: string;
+  onSearchChange: (v: string) => void;
+  productosSimples: ProductoSimple[];
+  excludeIds: string[];
+  onPick: (id: string) => void;
+}
+
+const OpcionPicker = ({ search, onSearchChange, productosSimples, excludeIds, onPick }: OpcionPickerProps) => {
+  const deferredSearch = useDeferredValue(search);
+  const excludeSet = useMemo(() => new Set(excludeIds), [excludeIds]);
+  const sugerencias = useMemo(() => {
+    const q = deferredSearch.toLowerCase();
+    if (q.length === 0) return [];
+    const out: ProductoSimple[] = [];
+    for (const p of productosSimples) {
+      if (excludeSet.has(p.id)) continue;
+      if (p.nombre.toLowerCase().includes(q)) {
+        out.push(p);
+        if (out.length >= 8) break;
+      }
+    }
+    return out;
+  }, [deferredSearch, productosSimples, excludeSet]);
+
+  return (
+    <div className="relative">
+      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+      <Input
+        placeholder="Buscar producto para agregar..."
+        value={search}
+        onChange={e => onSearchChange(e.target.value)}
+        className="pl-9"
+      />
+      {sugerencias.length > 0 && (
+        <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-popover border rounded-md shadow-md max-h-56 overflow-y-auto">
+          {sugerencias.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onPick(p.id)}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between"
+            >
+              <span>{p.nombre}</span>
+              <span className="text-xs text-muted-foreground">{p.categoria}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 export default PaquetesDinamicosTab;
