@@ -271,7 +271,15 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
         return;
       }
     }
+    const precioCheck = parseFloat(form.precio_venta) || 0;
+    if (precioCheck === 0) {
+      setConfirmZeroPriceOpen(true);
+      return;
+    }
+    await doSave();
+  };
 
+  const doSave = async () => {
     setSaving(true);
     const precio = parseFloat(form.precio_venta) || 0;
     const costo = calcCosto(grupos);
