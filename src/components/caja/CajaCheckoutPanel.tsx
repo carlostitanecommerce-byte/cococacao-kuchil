@@ -516,9 +516,6 @@ export function CajaCheckoutPanel() {
             <div className="flex justify-between text-muted-foreground">
               <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between text-muted-foreground">
-              <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
-            </div>
             {propina > 0 && (
               <div className="flex justify-between text-muted-foreground">
                 <span>Propina</span><span>${propina.toFixed(2)}</span>
