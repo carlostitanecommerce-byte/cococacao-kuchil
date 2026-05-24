@@ -122,11 +122,14 @@ export const useCartStore = create<CartState>()(
       // (venta_id NULL, coworking_session_id presente) y reaparecen al re-importar
       // la sesión. Eliminar consumos reales requiere flujo de cancelación:
       // solicitudes_cancelacion_sesiones / cancelaciones_items_sesion.
-      clear: () => set({ items: [], coworkingSessionId: null, clienteNombre: null, tarifaUpsells: {} }),
+      clear: () => set({ items: [], coworkingSessionId: null, ordenPendienteId: null, clienteNombre: null, tarifaUpsells: {} }),
       importCoworkingSession: (items, sessionId, clienteNombre) =>
-        set({ items: items.map(ensureLineId), coworkingSessionId: sessionId, clienteNombre }),
+        set({ items: items.map(ensureLineId), coworkingSessionId: sessionId, ordenPendienteId: null, clienteNombre, tarifaUpsells: {} }),
+      importOrdenPendiente: (items, ordenId, clienteNombre) =>
+        set({ items: items.map(ensureLineId), ordenPendienteId: ordenId, coworkingSessionId: null, clienteNombre, tarifaUpsells: {} }),
       setActiveCoworkingSession: (sessionId, clienteNombre) =>
         set({ coworkingSessionId: sessionId, clienteNombre }),
+      setOrdenPendienteId: (id) => set({ ordenPendienteId: id }),
       setTarifaUpsells: (map) => set({ tarifaUpsells: map }),
     }),
     {
