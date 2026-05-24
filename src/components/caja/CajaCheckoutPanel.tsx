@@ -46,6 +46,7 @@ export function CajaCheckoutPanel() {
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [plataformaId, setPlataformaId] = useState<string | null>(null);
   const [plataformas, setPlataformas] = useState<{ id: string; nombre: string }[]>([]);
+  const [preciosDelivery, setPreciosDelivery] = useState<Record<string, number>>({});
 
   useEffect(() => {
     supabase
@@ -57,6 +58,43 @@ export function CajaCheckoutPanel() {
         if (!error && data) setPlataformas(data);
       });
   }, []);
+
+  // Cargar precios especiales cuando hay delivery + plataforma seleccionada
+  useEffect(() => {
+    if (tipoConsumo !== 'delivery' || !plataformaId) {
+      setPreciosDelivery({});
+      return;
+    }
+    supabase
+      .from('producto_precios_delivery')
+      .select('producto_id, precio_venta')
+      .eq('plataforma_id', plataformaId)
+      .then(({ data, error }) => {
+        if (error || !data) { setPreciosDelivery({}); return; }
+        const map: Record<string, number> = {};
+        data.forEach((r: any) => { map[r.producto_id] = Number(r.precio_venta); });
+        setPreciosDelivery(map);
+      });
+  }, [tipoConsumo, plataformaId]);
+
+  // Items con precios re-calculados según override de plataforma de delivery.
+  // Las líneas readOnly (coworking/cuenta abierta) NUNCA se re-precian.
+  const deliveryOverrideActive = tipoConsumo === 'delivery' && !!plataformaId && Object.keys(preciosDelivery).length > 0;
+  const displayItems = useMemo<CartItem[]>(() => {
+    if (!deliveryOverrideActive) return items;
+    return items.map((it) => {
+      if (it.tipo_concepto === 'coworking' || it.open_account_detalle_id) return it;
+      const lookupId = it.paquete_id ?? it.producto_id;
+      const override = preciosDelivery[lookupId];
+      if (override == null || override === it.precio_unitario) return it;
+      return { ...it, precio_unitario: override, subtotal: +(override * it.cantidad).toFixed(2) };
+    });
+  }, [items, deliveryOverrideActive, preciosDelivery]);
+
+  const plataformaNombre = useMemo(
+    () => plataformas.find((p) => p.id === plataformaId)?.nombre ?? '',
+    [plataformas, plataformaId]
+  );
 
   const subtotal = useMemo(() => items.reduce((s, i) => s + i.subtotal, 0), [items]);
   const openAccountCount = useMemo(
