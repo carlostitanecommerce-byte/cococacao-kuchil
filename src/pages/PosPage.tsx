@@ -391,25 +391,12 @@ const PosPage = () => {
       return;
     }
     if (items.length === 0) return;
-    // Detectar si Caja está ocupada con órdenes pendientes
-    const { count, error } = await supabase
-      .from('ordenes_pos_pendientes')
-      .select('id', { count: 'exact', head: true })
-      .eq('estado', 'pendiente');
-    if (error) {
-      console.error(error);
-      toast.error('No se pudo consultar la cola de Caja');
-      return;
-    }
-    if ((count ?? 0) > 0) {
-      // Hay órdenes pendientes → parquear esta también
-      setClienteRef('');
-      setParkDialogOpen(true);
-      return;
-    }
-    // Caja libre → flujo actual
-    setTicketOpen(false);
-    navigate('/caja');
+    // Carritos POS y Caja están físicamente separados: la única vía de
+    // comunicación es la cola `ordenes_pos_pendientes`. Siempre parqueamos
+    // la orden antes de navegar a Caja para que el cajero la importe desde
+    // la cola en su propio carrito.
+    setClienteRef('');
+    setParkDialogOpen(true);
   };
 
 
