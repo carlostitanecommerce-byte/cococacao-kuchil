@@ -32,6 +32,7 @@ const CajaPage = () => {
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
   const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
+  const importOrdenPendiente = useCartStore((s) => s.importOrdenPendiente);
   const hasItems = useCartStore((s) => s.items.length > 0);
   const [cierreOpen, setCierreOpen] = useState(false);
   const [aperturaCerrada, setAperturaCerrada] = useState(false);
