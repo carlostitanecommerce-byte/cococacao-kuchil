@@ -505,9 +505,11 @@ const PosPage = () => {
           </div>
         </div>
         {paqueteDialog}
+        {parkDialog}
       </>
     );
   }
+
 
   // Tablet / mobile layout: products full-width + bottom bar + ticket Sheet
   return (
