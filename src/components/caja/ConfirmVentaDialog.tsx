@@ -20,7 +20,21 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
   const { user, profile } = useAuth();
   const [saving, setSaving] = useState(false);
   const [ticket, setTicket] = useState<VentaSummary | null>(null);
+  const [nombrePlataforma, setNombrePlataforma] = useState<string | null>(null);
   const inFlightRef = useRef(false);
+
+  useEffect(() => {
+    const pid = summary?.plataforma_id;
+    if (!pid) { setNombrePlataforma(null); return; }
+    let cancelled = false;
+    supabase
+      .from('plataformas_delivery')
+      .select('nombre')
+      .eq('id', pid)
+      .maybeSingle()
+      .then(({ data }) => { if (!cancelled) setNombrePlataforma(data?.nombre ?? null); });
+    return () => { cancelled = true; };
+  }, [summary?.plataforma_id]);
 
   if (!summary && !ticket) return null;
 
