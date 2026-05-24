@@ -346,14 +346,16 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
           <Separator />
 
           <div className="space-y-2">
-            <Label htmlFor="notas-cierre" className="font-semibold">Notas de Ajuste (opcional)</Label>
+            <Label htmlFor="notas-cierre" className="font-semibold">
+              Notas de Cierre {(pendientesPago.length > 0 && isAdmin) && <span className="text-destructive">*</span>}
+            </Label>
             <p className="text-xs text-muted-foreground">
-              Registra observaciones sobre diferencias, billetes dañados, etc.
+              Obligatorias cuando hay diferencia mayor a $5 o sesiones pendientes de pago (admin).
             </p>
             <textarea
               id="notas-cierre"
               className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-y"
-              placeholder="Ej: Billete de $500 dañado, sobrante de monedas..."
+              placeholder="Ej: Faltante de $50 por error de cambio, billete de $500 dañado..."
               value={notasCierre}
               onChange={e => setNotasCierre(e.target.value)}
             />
@@ -362,11 +364,12 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button onClick={handleSubmit} disabled={saving || !montoContado}>
+          <Button onClick={handleSubmit} disabled={saving || !montoContado || bloqueadoPorPendientes}>
             {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
             Confirmar Cierre
           </Button>
         </DialogFooter>
+
       </DialogContent>
 
       <AlertDialog open={confirmCierreOpen} onOpenChange={setConfirmCierreOpen}>
