@@ -469,7 +469,16 @@ const InsumosTab = ({ isAdmin }: Props) => {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Stock actual</Label>
-                <Input type="number" min="0" step="0.01" value={form.stock_actual} onChange={e => setForm(f => ({ ...f, stock_actual: e.target.value }))} />
+                {editingId ? (
+                  <>
+                    <Input type="number" value={form.stock_actual} disabled readOnly />
+                    <p className="text-xs text-muted-foreground">
+                      Solo lectura. Ajusta el stock desde Compras (entradas) o Reportes (auditoría física).
+                    </p>
+                  </>
+                ) : (
+                  <Input type="number" min="0" step="0.01" value={form.stock_actual} onChange={e => setForm(f => ({ ...f, stock_actual: e.target.value }))} />
+                )}
               </div>
               <div className="space-y-1">
                 <Label>Stock mínimo</Label>
@@ -477,6 +486,7 @@ const InsumosTab = ({ isAdmin }: Props) => {
               </div>
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
             <Button onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
