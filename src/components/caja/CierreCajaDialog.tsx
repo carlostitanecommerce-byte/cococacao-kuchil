@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -8,11 +8,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Calculator, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Calculator, EyeOff, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import type { CajaSession, MovimientoCaja } from '@/hooks/useCajaSession';
-import { nowCDMX } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+
 
 interface VentaPorUsuario {
   usuario_id: string;
@@ -30,6 +31,9 @@ interface Props {
 }
 
 export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaja }: Props) {
+  const { roles } = useAuth();
+  const isAdmin = roles.includes('administrador');
+
   const [montoContado, setMontoContado] = useState('');
   const [notasCierre, setNotasCierre] = useState('');
   const [saving, setSaving] = useState(false);
@@ -45,7 +49,8 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
   const [totalIVA, setTotalIVA] = useState(0);
   const [totalComisiones, setTotalComisiones] = useState(0);
   const [ventasPorUsuario, setVentasPorUsuario] = useState<VentaPorUsuario[]>([]);
-  const [sesionesActivas, setSesionesActivas] = useState<{ id: string; cliente_nombre: string }[]>([]);
+  const [sesionesActivas, setSesionesActivas] = useState<{ id: string; cliente_nombre: string; estado: string }[]>([]);
+
 
   useEffect(() => {
     if (!open) {
@@ -57,22 +62,12 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
       return;
     }
     const fetchVentas = async () => {
-      // Ventas vinculadas al turno actual + ventas legadas (sin caja_id) en el rango.
-      const [{ data: linked }, { data: legacy }] = await Promise.all([
-        supabase
-          .from('ventas')
-          .select('monto_efectivo, monto_tarjeta, monto_transferencia, total_neto, iva, comisiones_bancarias, usuario_id')
-          .eq('estado', 'completada' as any)
-          .eq('caja_id', caja.id),
-        supabase
-          .from('ventas')
-          .select('monto_efectivo, monto_tarjeta, monto_transferencia, total_neto, iva, comisiones_bancarias, usuario_id')
-          .eq('estado', 'completada' as any)
-          .is('caja_id', null)
-          .gte('fecha', caja.fecha_apertura)
-          .lte('fecha', nowCDMX()),
-      ]);
-      const data = [...(linked ?? []), ...(legacy ?? [])];
+      const { data } = await supabase
+        .from('ventas')
+        .select('monto_efectivo, monto_tarjeta, monto_transferencia, total_neto, iva, comisiones_bancarias, usuario_id')
+        .eq('estado', 'completada' as any)
+        .eq('caja_id', caja.id);
+
       if (data) {
         setVentasEfectivo(data.reduce((s, v) => s + (v.monto_efectivo ?? 0), 0));
         setVentasTarjeta(data.reduce((s, v) => s + (v.monto_tarjeta ?? 0), 0));
@@ -112,19 +107,36 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
           setVentasPorUsuario([]);
         }
       }
-      // Sesiones coworking activas o pendientes de pago (advertencia)
       const { data: sesiones } = await supabase
         .from('coworking_sessions')
         .select('id, cliente_nombre, estado')
         .in('estado', ['activo', 'pendiente_pago'] as any);
-      setSesionesActivas(((sesiones ?? []) as any).map((s: any) => ({ id: s.id, cliente_nombre: s.cliente_nombre })));
+      setSesionesActivas(((sesiones ?? []) as any).map((s: any) => ({
+        id: s.id, cliente_nombre: s.cliente_nombre, estado: s.estado,
+      })));
     };
     fetchVentas();
-  }, [open, caja.fecha_apertura]);
+  }, [open, caja.fecha_apertura, caja.id]);
 
-  const totalEntradas = movimientos.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.monto, 0);
-  const totalSalidas = movimientos.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
+  const pendientesPago = useMemo(
+    () => sesionesActivas.filter(s => s.estado === 'pendiente_pago'),
+    [sesionesActivas],
+  );
+  const activasSinCobro = useMemo(
+    () => sesionesActivas.filter(s => s.estado === 'activo'),
+    [sesionesActivas],
+  );
+
+  // Reverso ya neutraliza pares: se calcula sobre vigentes
+  const reversedIds = new Set(movimientos.filter(m => m.reversa_de).map(m => m.reversa_de!));
+  const movsVigentes = movimientos.filter(m => !reversedIds.has(m.id) && !m.reversa_de);
+  const totalEntradas = movsVigentes.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.monto, 0);
+  const totalSalidas = movsVigentes.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
   const contado = parseFloat(montoContado) || 0;
+
+  // Cuando no es admin y hay pendientes de pago, el servidor bloqueará.
+  // El UI lo refleja deshabilitando el botón y mostrando explicación.
+  const bloqueadoPorPendientes = pendientesPago.length > 0 && !isAdmin;
 
   const ejecutarCierre = async () => {
     setConfirmCierreOpen(false);
@@ -146,12 +158,21 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
       toast.error('Ingresa el monto contado');
       return;
     }
+    if (bloqueadoPorPendientes) {
+      toast.error('Cobra primero las sesiones de coworking pendientes de pago');
+      return;
+    }
+    if (pendientesPago.length > 0 && isAdmin && !notasCierre.trim()) {
+      toast.error('Indica en notas por qué cierras con sesiones pendientes de pago');
+      return;
+    }
     if (sesionesActivas.length > 0) {
       setConfirmCierreOpen(true);
       return;
     }
     void ejecutarCierre();
   };
+
 
   // Post-submit result view
   if (submitted && resultEsperado !== null) {
@@ -255,18 +276,38 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
         </DialogHeader>
 
         <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto">
-          {sesionesActivas.length > 0 && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs space-y-1">
-              <p className="font-semibold text-destructive">⚠️ {sesionesActivas.length} sesión(es) de coworking sin cobrar</p>
+          {pendientesPago.length > 0 && (
+            <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-xs space-y-1">
+              <p className="font-semibold text-destructive flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {pendientesPago.length} sesión(es) en cobro pendiente
+              </p>
               <ul className="text-muted-foreground list-disc list-inside">
-                {sesionesActivas.slice(0, 5).map(s => (
+                {pendientesPago.slice(0, 5).map(s => (
                   <li key={s.id}>{s.cliente_nombre}</li>
                 ))}
-                {sesionesActivas.length > 5 && <li>…y {sesionesActivas.length - 5} más</li>}
+                {pendientesPago.length > 5 && <li>…y {pendientesPago.length - 5} más</li>}
               </ul>
-              <p className="text-muted-foreground">Si cierras ahora, quedarán pendientes para el siguiente turno.</p>
+              {bloqueadoPorPendientes ? (
+                <p className="text-destructive">Estas sesiones ya consumieron. Cóbralas antes de cerrar o pide a un administrador.</p>
+              ) : (
+                <p className="text-muted-foreground">Como administrador puedes cerrar, pero las notas serán obligatorias.</p>
+              )}
             </div>
           )}
+          {activasSinCobro.length > 0 && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs space-y-1">
+              <p className="font-semibold text-amber-700">⚠️ {activasSinCobro.length} sesión(es) de coworking activas</p>
+              <ul className="text-muted-foreground list-disc list-inside">
+                {activasSinCobro.slice(0, 5).map(s => (
+                  <li key={s.id}>{s.cliente_nombre}</li>
+                ))}
+                {activasSinCobro.length > 5 && <li>…y {activasSinCobro.length - 5} más</li>}
+              </ul>
+              <p className="text-muted-foreground">Continuarán abiertas en el siguiente turno.</p>
+            </div>
+          )}
+
           <div className="space-y-1">
             <p className="font-semibold text-xs uppercase text-muted-foreground">Movimientos de caja</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -305,14 +346,16 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
           <Separator />
 
           <div className="space-y-2">
-            <Label htmlFor="notas-cierre" className="font-semibold">Notas de Ajuste (opcional)</Label>
+            <Label htmlFor="notas-cierre" className="font-semibold">
+              Notas de Cierre {(pendientesPago.length > 0 && isAdmin) && <span className="text-destructive">*</span>}
+            </Label>
             <p className="text-xs text-muted-foreground">
-              Registra observaciones sobre diferencias, billetes dañados, etc.
+              Obligatorias cuando hay diferencia mayor a $5 o sesiones pendientes de pago (admin).
             </p>
             <textarea
               id="notas-cierre"
               className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-y"
-              placeholder="Ej: Billete de $500 dañado, sobrante de monedas..."
+              placeholder="Ej: Faltante de $50 por error de cambio, billete de $500 dañado..."
               value={notasCierre}
               onChange={e => setNotasCierre(e.target.value)}
             />
@@ -321,11 +364,12 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button onClick={handleSubmit} disabled={saving || !montoContado}>
+          <Button onClick={handleSubmit} disabled={saving || !montoContado || bloqueadoPorPendientes}>
             {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
             Confirmar Cierre
           </Button>
         </DialogFooter>
+
       </DialogContent>
 
       <AlertDialog open={confirmCierreOpen} onOpenChange={setConfirmCierreOpen}>

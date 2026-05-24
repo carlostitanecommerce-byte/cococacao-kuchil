@@ -27,7 +27,7 @@ const CajaPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const pendingSessionId = searchParams.get('session');
   const { roles } = useAuth();
-  const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, cerrarCaja } = useCajaSession();
+  const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
   const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
   const [cierreOpen, setCierreOpen] = useState(false);
@@ -81,7 +81,7 @@ const CajaPage = () => {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <MovimientosCajaPanel movimientos={movimientos} onRegistrar={registrarMovimiento} />
+                <MovimientosCajaPanel movimientos={movimientos} onRegistrar={registrarMovimiento} onReversar={reversarMovimiento} />
                 <Button variant="destructive" onClick={() => setCierreOpen(true)}>
                   Cerrar Caja
                 </Button>
