@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -30,8 +31,18 @@ const CajaPage = () => {
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
   const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
+  const hasItems = useCartStore((s) => s.items.length > 0);
   const [cierreOpen, setCierreOpen] = useState(false);
   const [aperturaCerrada, setAperturaCerrada] = useState(false);
+
+  useEffect(() => {
+    if (pendingSessionId && hasItems) {
+      toast.warning('La sesión quedará pendiente. Termina el ticket actual para atenderla.');
+      setSearchParams({});
+    }
+  }, [pendingSessionId, hasItems, setSearchParams]);
+
+  const effectivePendingSessionId = hasItems ? null : pendingSessionId;
 
   const isAdmin = roles.includes('administrador');
   const isSupervisor = roles.includes('supervisor');
@@ -104,7 +115,7 @@ const CajaPage = () => {
         <CoworkingSessionSelector
           onImportSession={handleImportSession}
           importedSessionId={coworkingSessionId ?? undefined}
-          pendingSessionId={pendingSessionId}
+          pendingSessionId={effectivePendingSessionId}
           onPendingConsumed={() => setSearchParams({})}
         />
       )}
