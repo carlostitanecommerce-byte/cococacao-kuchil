@@ -251,6 +251,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         monto_transferencia: montoTransferencia,
         coworking_session_id: summary.coworking_session_id ?? null,
         caja_id: summary.caja_id ?? null,
+        plataforma_id: summary.tipo_consumo === 'delivery' ? (summary.plataforma_id ?? null) : null,
       };
       const isCoworkingCheckout = !!summary.coworking_session_id;
       const openIds = openItems.map(it => it.open_account_detalle_id!).filter(Boolean);
