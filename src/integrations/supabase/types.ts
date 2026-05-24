@@ -1066,6 +1066,51 @@ export type Database = {
           },
         ]
       }
+      solicitudes_movimiento_caja: {
+        Row: {
+          caja_id: string
+          created_at: string
+          estado: Database["public"]["Enums"]["solicitud_movimiento_estado"]
+          id: string
+          monto: number
+          motivo: string
+          motivo_rechazo: string | null
+          movimiento_id: string | null
+          revisado_por: string | null
+          solicitante_id: string
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          caja_id: string
+          created_at?: string
+          estado?: Database["public"]["Enums"]["solicitud_movimiento_estado"]
+          id?: string
+          monto: number
+          motivo: string
+          motivo_rechazo?: string | null
+          movimiento_id?: string | null
+          revisado_por?: string | null
+          solicitante_id: string
+          tipo: string
+          updated_at?: string
+        }
+        Update: {
+          caja_id?: string
+          created_at?: string
+          estado?: Database["public"]["Enums"]["solicitud_movimiento_estado"]
+          id?: string
+          monto?: number
+          motivo?: string
+          motivo_rechazo?: string | null
+          movimiento_id?: string | null
+          revisado_por?: string | null
+          solicitante_id?: string
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       tarifa_amenities_incluidos: {
         Row: {
           cantidad_incluida: number
@@ -1313,6 +1358,10 @@ export type Database = {
         Returns: Json
       }
       aplicar_auditoria_inventario: { Args: { p_ajustes: Json }; Returns: Json }
+      aprobar_movimiento_caja: {
+        Args: { p_solicitud_id: string }
+        Returns: Json
+      }
       cancelar_sesion_coworking: {
         Args: {
           p_entregados: Json
@@ -1381,6 +1430,10 @@ export type Database = {
         Args: { p_insumo_id?: string }
         Returns: number
       }
+      rechazar_movimiento_caja: {
+        Args: { p_motivo?: string; p_solicitud_id: string }
+        Returns: Json
+      }
       registrar_amenity_sesion: {
         Args: {
           p_cantidad?: number
@@ -1395,6 +1448,10 @@ export type Database = {
       }
       registrar_merma: {
         Args: { p_cantidad: number; p_insumo_id: string; p_motivo: string }
+        Returns: Json
+      }
+      registrar_movimiento_caja: {
+        Args: { p_monto: number; p_motivo: string; p_tipo: string }
         Returns: Json
       }
       resolver_cancelacion_item_sesion: {
@@ -1451,6 +1508,7 @@ export type Database = {
         | "pendiente"
         | "aprobada"
         | "rechazada"
+      solicitud_movimiento_estado: "pendiente" | "aprobada" | "rechazada"
       tipo_cobro: "hora" | "dia" | "mes" | "paquete_horas"
       tipo_concepto: "producto" | "coworking" | "amenity"
       tipo_consumo: "sitio" | "para_llevar" | "delivery"
@@ -1605,6 +1663,7 @@ export const Constants = {
         "aprobada",
         "rechazada",
       ],
+      solicitud_movimiento_estado: ["pendiente", "aprobada", "rechazada"],
       tipo_cobro: ["hora", "dia", "mes", "paquete_horas"],
       tipo_concepto: ["producto", "coworking", "amenity"],
       tipo_consumo: ["sitio", "para_llevar", "delivery"],
