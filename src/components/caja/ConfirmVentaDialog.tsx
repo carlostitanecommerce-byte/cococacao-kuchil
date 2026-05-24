@@ -13,7 +13,7 @@ import { nowCDMX } from '@/lib/utils';
 interface Props {
   summary: VentaSummary | null;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (ventaId: string) => void;
 }
 
 export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
@@ -22,6 +22,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
   const [ticket, setTicket] = useState<VentaSummary | null>(null);
   const [nombrePlataforma, setNombrePlataforma] = useState<string | null>(null);
   const inFlightRef = useRef(false);
+  const ventaIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const pid = summary?.plataforma_id;
@@ -301,6 +302,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       }
 
       const venta = rpcData as unknown as { id: string; folio: number };
+      ventaIdRef.current = venta.id;
 
       // 4. Create KDS order for kitchen (productos simples + componentes de paquetes)
       // - Excluir tiempo de servicio coworking (no preparable).
@@ -403,7 +405,9 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
 
   const handleCloseTicket = () => {
     setTicket(null);
-    onSuccess();
+    const id = ventaIdRef.current;
+    ventaIdRef.current = null;
+    onSuccess(id ?? '');
     onClose();
   };
 

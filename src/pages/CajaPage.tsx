@@ -18,6 +18,7 @@ import { SolicitudesCancelacionPanel } from '@/components/caja/SolicitudesCancel
 import { SolicitudesMovimientoPanel } from '@/components/caja/SolicitudesMovimientoPanel';
 import { useSolicitudMovimientoToasts } from '@/hooks/useSolicitudMovimientoToasts';
 import { CoworkingSessionSelector } from '@/components/caja/CoworkingSessionSelector';
+import { OrdenesPosSelector, type OrdenPendiente } from '@/components/caja/OrdenesPosSelector';
 import { CajaCheckoutPanel } from '@/components/caja/CajaCheckoutPanel';
 
 import { useCartStore } from '@/stores/cartStore';
@@ -31,6 +32,7 @@ const CajaPage = () => {
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
   const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
+  const importOrdenPendiente = useCartStore((s) => s.importOrdenPendiente);
   const hasItems = useCartStore((s) => s.items.length > 0);
   const [cierreOpen, setCierreOpen] = useState(false);
   const [aperturaCerrada, setAperturaCerrada] = useState(false);
@@ -54,6 +56,12 @@ const CajaPage = () => {
 
   const handleImportSession = (items: CartItem[], sessionId: string, clienteNombre: string) => {
     importCoworkingSession(items, sessionId, clienteNombre);
+  };
+
+  const handleImportOrden = (orden: OrdenPendiente) => {
+    importOrdenPendiente(orden.items, orden.id, orden.cliente_nombre);
+    const folioStr = String(orden.folio).padStart(4, '0');
+    toast.success(`Orden #${folioStr} importada al ticket`);
   };
 
   if (loading) {
@@ -112,12 +120,15 @@ const CajaPage = () => {
       </Card>
 
       {cajaAbierta && (
-        <CoworkingSessionSelector
-          onImportSession={handleImportSession}
-          importedSessionId={coworkingSessionId ?? undefined}
-          pendingSessionId={effectivePendingSessionId}
-          onPendingConsumed={() => setSearchParams({})}
-        />
+        <>
+          <OrdenesPosSelector onImport={handleImportOrden} />
+          <CoworkingSessionSelector
+            onImportSession={handleImportSession}
+            importedSessionId={coworkingSessionId ?? undefined}
+            pendingSessionId={effectivePendingSessionId}
+            onPendingConsumed={() => setSearchParams({})}
+          />
+        </>
       )}
 
       {(isAdmin || isSupervisor) && <SolicitudesMovimientoPanel />}

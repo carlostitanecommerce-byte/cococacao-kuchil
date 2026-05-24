@@ -10,6 +10,7 @@ const ensureLineId = (i: CartItem): CartItem =>
 interface CartState {
   items: CartItem[];
   coworkingSessionId: string | null;
+  ordenPendienteId: string | null;
   clienteNombre: string | null;
   ownerUserId: string | null;
   /** Mapa producto_id → precio especial proveniente de tarifa_upsells de la sesión activa. */
@@ -24,7 +25,9 @@ interface CartState {
   removeItem: (key: string) => void;
   clear: () => void;
   importCoworkingSession: (items: CartItem[], sessionId: string, clienteNombre: string) => void;
+  importOrdenPendiente: (items: CartItem[], ordenId: string, clienteNombre: string | null) => void;
   setActiveCoworkingSession: (sessionId: string | null, clienteNombre: string | null) => void;
+  setOrdenPendienteId: (id: string | null) => void;
   setTarifaUpsells: (map: Record<string, number>) => void;
 }
 
@@ -33,17 +36,18 @@ export const useCartStore = create<CartState>()(
     (set, get) => ({
       items: [],
       coworkingSessionId: null,
+      ordenPendienteId: null,
       clienteNombre: null,
       ownerUserId: null,
       tarifaUpsells: {},
       ensureOwner: (userId) => {
         const current = get().ownerUserId;
         if (userId && current && current !== userId) {
-          set({ items: [], coworkingSessionId: null, clienteNombre: null, tarifaUpsells: {}, ownerUserId: userId });
+          set({ items: [], coworkingSessionId: null, ordenPendienteId: null, clienteNombre: null, tarifaUpsells: {}, ownerUserId: userId });
         } else if (userId && !current) {
           set({ ownerUserId: userId });
         } else if (!userId && current) {
-          set({ items: [], coworkingSessionId: null, clienteNombre: null, tarifaUpsells: {}, ownerUserId: null });
+          set({ items: [], coworkingSessionId: null, ordenPendienteId: null, clienteNombre: null, tarifaUpsells: {}, ownerUserId: null });
         }
       },
       setItems: (items) => set({ items: items.map(ensureLineId) }),
@@ -118,11 +122,14 @@ export const useCartStore = create<CartState>()(
       // (venta_id NULL, coworking_session_id presente) y reaparecen al re-importar
       // la sesión. Eliminar consumos reales requiere flujo de cancelación:
       // solicitudes_cancelacion_sesiones / cancelaciones_items_sesion.
-      clear: () => set({ items: [], coworkingSessionId: null, clienteNombre: null, tarifaUpsells: {} }),
+      clear: () => set({ items: [], coworkingSessionId: null, ordenPendienteId: null, clienteNombre: null, tarifaUpsells: {} }),
       importCoworkingSession: (items, sessionId, clienteNombre) =>
-        set({ items: items.map(ensureLineId), coworkingSessionId: sessionId, clienteNombre }),
+        set({ items: items.map(ensureLineId), coworkingSessionId: sessionId, ordenPendienteId: null, clienteNombre, tarifaUpsells: {} }),
+      importOrdenPendiente: (items, ordenId, clienteNombre) =>
+        set({ items: items.map(ensureLineId), ordenPendienteId: ordenId, coworkingSessionId: null, clienteNombre, tarifaUpsells: {} }),
       setActiveCoworkingSession: (sessionId, clienteNombre) =>
         set({ coworkingSessionId: sessionId, clienteNombre }),
+      setOrdenPendienteId: (id) => set({ ordenPendienteId: id }),
       setTarifaUpsells: (map) => set({ tarifaUpsells: map }),
     }),
     {
