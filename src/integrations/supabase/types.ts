@@ -1436,6 +1436,10 @@ export type Database = {
         }[]
       }
       get_decrypted_password: { Args: { p_user_id: string }; Returns: string }
+      guardar_paquete_grupos: {
+        Args: { p_grupos: Json; p_paquete_id: string }
+        Returns: undefined
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
