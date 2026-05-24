@@ -81,7 +81,7 @@ const CajaPage = () => {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <MovimientosCajaPanel movimientos={movimientos} onRegistrar={registrarMovimiento} />
+                <MovimientosCajaPanel movimientos={movimientos} onRegistrar={registrarMovimiento} onReversar={reversarMovimiento} />
                 <Button variant="destructive" onClick={() => setCierreOpen(true)}>
                   Cerrar Caja
                 </Button>
