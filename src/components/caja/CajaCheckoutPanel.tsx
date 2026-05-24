@@ -306,18 +306,26 @@ export function CajaCheckoutPanel() {
             <p className="text-xs mt-1">Agrega productos desde POS o importa una sesión de coworking</p>
           </div>
         ) : (
-          items.map((item) => {
+          displayItems.map((item, idx) => {
+            const original = items[idx];
             const readOnly = isReadOnlyLine(item);
             const esCoworkingCharge = item.tipo_concepto === 'coworking';
             const k = item.lineId ?? item.producto_id;
             const isBusy = incrementing === k;
+            const priceOverridden = deliveryOverrideActive && original && original.precio_unitario !== item.precio_unitario;
             return (
               <div key={k} className={`flex items-center gap-2 text-sm border border-border rounded-md p-2 ${readOnly ? 'bg-muted/30' : ''}`}>
 
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{item.nombre}</p>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs text-muted-foreground">
+                      {priceOverridden && (
+                        <span className="line-through mr-1 opacity-60">${original.precio_unitario.toFixed(2)}</span>
+                      )}
+                      <span className={priceOverridden ? 'text-primary font-medium' : ''}>${item.precio_unitario.toFixed(2)}</span>
+                      <span> c/u</span>
+                    </p>
                     {readOnly && (
                       <Badge variant="secondary" className="text-[10px] px-1 h-4 gap-1">
                         <Lock className="h-2.5 w-2.5" />
