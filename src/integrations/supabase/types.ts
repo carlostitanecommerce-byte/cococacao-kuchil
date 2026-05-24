@@ -1323,6 +1323,14 @@ export type Database = {
         }
         Returns: Json
       }
+      cerrar_caja: {
+        Args: {
+          p_caja_id: string
+          p_monto_cierre: number
+          p_notas_cierre?: string
+        }
+        Returns: Json
+      }
       cerrar_cuenta_coworking: {
         Args: {
           p_audit?: Json
