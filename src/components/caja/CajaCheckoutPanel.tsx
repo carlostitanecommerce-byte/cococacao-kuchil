@@ -251,7 +251,17 @@ export function CajaCheckoutPanel() {
     setSummary(ventaSummary);
   };
 
-  const handleSuccess = () => {
+  const handleSuccess = async (ventaId: string) => {
+    if (ordenPendienteId) {
+      const { error } = await supabase
+        .from('ordenes_pos_pendientes')
+        .update({ estado: 'cobrada', venta_id: ventaId || null })
+        .eq('id', ordenPendienteId);
+      if (error) {
+        console.error('No se pudo marcar la orden pendiente como cobrada', error);
+        toast.error('La venta se registró pero la orden quedó en la cola. Notifica al administrador.');
+      }
+    }
     clear();
     setMetodoPago('efectivo');
     setTipoConsumo('sitio');
