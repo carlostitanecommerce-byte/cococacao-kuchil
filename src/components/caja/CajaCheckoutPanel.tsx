@@ -213,6 +213,7 @@ export function CajaCheckoutPanel() {
     setPropinaManual('');
     setPropinaEnDigital(false);
     setMixed({ efectivo: 0, tarjeta: 0, transferencia: 0 });
+    setPlataformaId(null);
   };
 
   const showPropinaDigitalCheckbox =
