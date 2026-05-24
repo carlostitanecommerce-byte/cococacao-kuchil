@@ -1010,6 +1010,24 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={confirmZeroPriceOpen} onOpenChange={setConfirmZeroPriceOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Guardar con precio $0.00?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este producto no generará ingreso al venderse. Úsalo solo para cortesías o pruebas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmZeroPriceOpen(false); doSave(); }}>
+              Sí, guardar gratis
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+
       {/* Auditoría: productos sin receta */}
       <Dialog open={auditDialogOpen} onOpenChange={setAuditDialogOpen}>
         <DialogContent className="max-w-2xl">
