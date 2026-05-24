@@ -1,48 +1,57 @@
-# Plan: 3 hallazgos confirmados en Menú / Inventarios
+## Verificación
 
-Confirmé los 3 problemas leyendo el código actual:
+Confirmo que los tres problemas existen en el código actual:
 
-- `CategoriasManager.confirmDelete` ejecuta `delete` aunque `uso_productos > 0` (solo muestra advertencia).
-- `fetchProductos` (ProductosTab) y `fetchPaquetes` (PaquetesDinamicosTab) **no leen** el campo `error` de Supabase — si falla la red o RLS, la tabla queda vacía sin aviso.
-- `handleSave` en ambos (`ProductosTab` y `PaquetesDinamicosTab`) guarda con `precio_venta = 0` sin ninguna confirmación.
+1. **Sin validación de categoría al guardar producto** — `ProductosTab.tsx` línea 229-237: `handleSave` valida nombre y precio pero nunca `form.categoria`. Se puede persistir con cadena vacía.
+2. **Editar paquete dinámico borra y recrea grupos sin transacción** — `PaquetesDinamicosTab.tsx` líneas 311-348: hace `DELETE` de `paquete_grupos` y luego un loop de `INSERT`. Si falla en medio, el paquete queda con grupos parciales o vacíos. Solo hay rollback parcial para paquetes nuevos.
+3. **Buscador de opciones sin diferimiento** — `PaquetesDinamicosTab.tsx` líneas 630-634: cada keystroke en `g._search` re-renderiza y filtra `productosSimples` sincrónicamente.
 
----
+## Plan de corrección
 
-## 1. Bloquear borrado duro de categorías en uso
+### 1. Validar categoría en `ProductosTab.tsx`
+En `handleSave`, después de validar `nombre`, agregar:
+```ts
+if (!form.categoria) { toast.error('La categoría es obligatoria'); return; }
+```
 
-**Archivo:** `src/components/categorias/CategoriasManager.tsx`
+### 2. Paquetes dinámicos atómicos vía RPC
+Crear una función SQL `guardar_paquete_grupos(p_paquete_id uuid, p_grupos jsonb)` con `SECURITY DEFINER` que dentro de una transacción:
+- Borre todos los `paquete_grupos` del paquete (cascade limpia opciones).
+- Recorra el JSONB de grupos insertando cada grupo y sus opciones.
+- Si algo falla, hacer `RAISE EXCEPTION` para abortar y revertir todo automáticamente.
 
-- En la tabla, calcular `enUso = (cat.ambito==='insumo' ? uso_insumos : uso_productos) > 0`.
-- Si `enUso`: el botón **Eliminar** se renderiza `disabled`, envuelto en `<Tooltip>` con mensaje: *"No se puede eliminar: hay N {insumos|productos} usando esta categoría. Renombra la categoría o reasigna los elementos primero."*
-- Si no está en uso: comportamiento actual (abre `AlertDialog` y elimina).
-- Simplificar el `AlertDialog` de confirmación: ya no necesita la rama "está en uso" porque nunca llegará ahí; queda solo el mensaje estándar.
-- Como defensa en `confirmDelete`: re-verificar `enUso` y abortar con `toast.error` si por algún motivo se intenta (evita race con realtime).
+En `PaquetesDinamicosTab.tsx`, en `doSave`, reemplazar el bloque `DELETE` + loop de `INSERT` (líneas 311-348) por una sola llamada:
+```ts
+const { error } = await supabase.rpc('guardar_paquete_grupos', {
+  p_paquete_id: paqueteId!,
+  p_grupos: grupos.map(g => ({
+    nombre_grupo: g.nombre_grupo.trim(),
+    cantidad_incluida: g.cantidad_incluida,
+    es_obligatorio: g.es_obligatorio,
+    orden: g.orden,
+    opciones: g.opciones.map(o => ({
+      producto_id: o.producto_id,
+      precio_adicional: o.precio_adicional || 0,
+    })),
+  })),
+});
+```
+Si la RPC falla y es paquete nuevo, se borra el producto recién creado (mantener el rollback ya existente).
 
-## 2. Manejo de errores en fetch inicial de Productos y Paquetes
-
-**Archivos:** `src/components/inventarios/ProductosTab.tsx`, `src/components/menu/PaquetesDinamicosTab.tsx`
-
-- Añadir estado `fetchError: string | null` en ambos componentes.
-- En `fetchProductos` / `fetchPaquetes`: destructurar `{ data, error }`; si `error`, setear `fetchError(error.message)`, mostrar `toast.error('No se pudo cargar...')` y dejar la lista vacía. Si OK, limpiar `fetchError`.
-- En el cuerpo de la tabla, cuando `!loading && fetchError`: renderizar una fila con icono de alerta, el mensaje y un botón **Reintentar** que llama nuevamente al fetch (`fetchProductos()` / `fetchPaquetes()`).
-- También capturar `error` en el fetch secundario de `insumos` (ProductosTab) y `productos simples` (PaquetesDinamicosTab) con `toast.error` (no bloquea la UI pero avisa).
-
-## 3. Confirmación al guardar con precio $0
-
-**Archivos:** `src/components/inventarios/ProductosTab.tsx`, `src/components/menu/PaquetesDinamicosTab.tsx`
-
-- Añadir estado `confirmZeroPriceOpen: boolean` y refactor: extraer el cuerpo actual de `handleSave` a `doSave()`.
-- Nuevo `handleSave`:
-  - Validaciones síncronas (nombre, grupos, etc.) primero.
-  - Si `parseFloat(form.precio_venta) === 0` → `setConfirmZeroPriceOpen(true)` y `return` (no marca `saving` todavía).
-  - Si no, llamar `doSave()`.
-- Agregar `<AlertDialog>` "¿Guardar con precio $0.00? Este artículo no generará ingreso al venderse. Úsalo solo para cortesías o pruebas." con acciones **Cancelar** / **Sí, guardar gratis** → al confirmar cierra el diálogo y llama `doSave()`.
-
----
+### 3. Diferir filtrado del buscador de opciones
+En el render de cada grupo (líneas 630-634), aplicar `useDeferredValue` al valor de búsqueda. Como el `search` está dentro de cada `grupo._search`, la solución más limpia es extraer el bloque de constructor de opciones a un subcomponente `GrupoOpcionesPicker` que reciba `productosSimples` y use internamente:
+```tsx
+const deferredSearch = useDeferredValue(search);
+const sugerencias = useMemo(() =>
+  deferredSearch.length > 0
+    ? productosSimples.filter(p => p.nombre.toLowerCase().includes(deferredSearch.toLowerCase()) && !yaSeleccionados.has(p.id)).slice(0, 8)
+    : [],
+[deferredSearch, productosSimples, yaSeleccionados]);
+```
+Esto evita bloquear el hilo principal cuando hay cientos de productos.
 
 ## Archivos afectados
-- `src/components/categorias/CategoriasManager.tsx`
-- `src/components/inventarios/ProductosTab.tsx`
-- `src/components/menu/PaquetesDinamicosTab.tsx`
 
-Sin migraciones ni cambios de backend.
+- `src/components/inventarios/ProductosTab.tsx` (validación categoría)
+- `src/components/menu/PaquetesDinamicosTab.tsx` (RPC + useDeferredValue)
+- Nueva migración SQL: función `guardar_paquete_grupos`

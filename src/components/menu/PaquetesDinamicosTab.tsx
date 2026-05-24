@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useDeferredValue } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { useAuth } from '@/hooks/useAuth';
@@ -308,43 +308,25 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
       paqueteId = data.id;
     }
 
-    // Borrar grupos existentes (cascade limpia opciones)
-    await supabase.from('paquete_grupos').delete().eq('paquete_id', paqueteId!);
-
-    // Insertar grupos uno por uno para capturar IDs y luego sus opciones
-    for (const g of grupos) {
-      const { data: gData, error: gErr } = await supabase
-        .from('paquete_grupos')
-        .insert({
-          paquete_id: paqueteId!,
-          nombre_grupo: g.nombre_grupo.trim(),
-          cantidad_incluida: g.cantidad_incluida,
-          es_obligatorio: g.es_obligatorio,
-          orden: g.orden,
-        })
-        .select('id')
-        .single();
-      if (gErr || !gData) {
-        toast.error('Error al guardar grupos');
-        if (isNew && paqueteId) await supabase.from('productos').delete().eq('id', paqueteId);
-        setSaving(false);
-        return;
-      }
-      if (g.opciones.length > 0) {
-        const { error: oErr } = await supabase.from('paquete_opciones_grupo').insert(
-          g.opciones.map(o => ({
-            grupo_id: gData.id,
-            producto_id: o.producto_id,
-            precio_adicional: o.precio_adicional || 0,
-          }))
-        );
-        if (oErr) {
-          toast.error('Error al guardar opciones');
-          if (isNew && paqueteId) await supabase.from('productos').delete().eq('id', paqueteId);
-          setSaving(false);
-          return;
-        }
-      }
+    // Guardar grupos + opciones atómicamente vía RPC transaccional
+    const { error: rpcErr } = await supabase.rpc('guardar_paquete_grupos', {
+      p_paquete_id: paqueteId!,
+      p_grupos: grupos.map(g => ({
+        nombre_grupo: g.nombre_grupo.trim(),
+        cantidad_incluida: g.cantidad_incluida,
+        es_obligatorio: g.es_obligatorio,
+        orden: g.orden,
+        opciones: g.opciones.map(o => ({
+          producto_id: o.producto_id,
+          precio_adicional: o.precio_adicional || 0,
+        })),
+      })),
+    });
+    if (rpcErr) {
+      toast.error('Error al guardar grupos del paquete');
+      if (isNew && paqueteId) await supabase.from('productos').delete().eq('id', paqueteId);
+      setSaving(false);
+      return;
     }
 
     if (user) {
@@ -628,13 +610,6 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
             )}
 
             {grupos.map((g, gi) => {
-              const search = (g._search ?? '').toLowerCase();
-              const sugerencias = search.length > 0
-                ? productosSimples.filter(p =>
-                    p.nombre.toLowerCase().includes(search) &&
-                    !g.opciones.some(o => o.producto_id === p.id)
-                  ).slice(0, 8)
-                : [];
               return (
                 <Card key={gi} className="border-2">
                   <CardContent className="p-3 space-y-3">
@@ -658,31 +633,15 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
                       </div>
                     </div>
 
-                    {/* Buscador de opciones */}
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Buscar producto para agregar..."
-                        value={g._search ?? ''}
-                        onChange={e => updateGrupo(gi, { _search: e.target.value })}
-                        className="pl-9"
-                      />
-                      {sugerencias.length > 0 && (
-                        <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-popover border rounded-md shadow-md max-h-56 overflow-y-auto">
-                          {sugerencias.map(p => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => addOpcion(gi, p.id)}
-                              className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between"
-                            >
-                              <span>{p.nombre}</span>
-                              <span className="text-xs text-muted-foreground">{p.categoria}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+
+                    <OpcionPicker
+                      search={g._search ?? ''}
+                      onSearchChange={(v) => updateGrupo(gi, { _search: v })}
+                      productosSimples={productosSimples}
+                      excludeIds={g.opciones.map(o => o.producto_id)}
+                      onPick={(id) => addOpcion(gi, id)}
+                    />
+
 
                     {/* Lista de opciones */}
                     {g.opciones.length === 0 ? (
@@ -778,5 +737,59 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
     </div>
   );
 };
+
+interface OpcionPickerProps {
+  search: string;
+  onSearchChange: (v: string) => void;
+  productosSimples: ProductoSimple[];
+  excludeIds: string[];
+  onPick: (id: string) => void;
+}
+
+const OpcionPicker = ({ search, onSearchChange, productosSimples, excludeIds, onPick }: OpcionPickerProps) => {
+  const deferredSearch = useDeferredValue(search);
+  const excludeSet = useMemo(() => new Set(excludeIds), [excludeIds]);
+  const sugerencias = useMemo(() => {
+    const q = deferredSearch.toLowerCase();
+    if (q.length === 0) return [];
+    const out: ProductoSimple[] = [];
+    for (const p of productosSimples) {
+      if (excludeSet.has(p.id)) continue;
+      if (p.nombre.toLowerCase().includes(q)) {
+        out.push(p);
+        if (out.length >= 8) break;
+      }
+    }
+    return out;
+  }, [deferredSearch, productosSimples, excludeSet]);
+
+  return (
+    <div className="relative">
+      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+      <Input
+        placeholder="Buscar producto para agregar..."
+        value={search}
+        onChange={e => onSearchChange(e.target.value)}
+        className="pl-9"
+      />
+      {sugerencias.length > 0 && (
+        <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-popover border rounded-md shadow-md max-h-56 overflow-y-auto">
+          {sugerencias.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onPick(p.id)}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between"
+            >
+              <span>{p.nombre}</span>
+              <span className="text-xs text-muted-foreground">{p.categoria}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 export default PaquetesDinamicosTab;

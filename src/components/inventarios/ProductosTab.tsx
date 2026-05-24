@@ -228,6 +228,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
 
   const handleSave = async () => {
     if (!form.nombre.trim()) { toast.error('El nombre es obligatorio'); return; }
+    if (!form.categoria) { toast.error('La categoría es obligatoria'); return; }
     const precioCheck = parseFloat(form.precio_venta) || 0;
     if (precioCheck === 0) {
       setConfirmZeroPriceOpen(true);
