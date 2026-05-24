@@ -224,8 +224,19 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
 
   const removeLine = (idx: number) => setReceta(r => r.filter((_, i) => i !== idx));
 
+  const [confirmZeroPriceOpen, setConfirmZeroPriceOpen] = useState(false);
+
   const handleSave = async () => {
     if (!form.nombre.trim()) { toast.error('El nombre es obligatorio'); return; }
+    const precioCheck = parseFloat(form.precio_venta) || 0;
+    if (precioCheck === 0) {
+      setConfirmZeroPriceOpen(true);
+      return;
+    }
+    await doSave();
+  };
+
+  const doSave = async () => {
     setSaving(true);
     const precio = parseFloat(form.precio_venta) || 0;
     const costo = calcCosto(receta);
