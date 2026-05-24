@@ -27,6 +27,7 @@ type TipoConsumo = 'sitio' | 'para_llevar' | 'delivery';
 export function CajaCheckoutPanel() {
   const items = useCartStore((s) => s.items);
   const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
+  const ordenPendienteId = useCartStore((s) => s.ordenPendienteId);
   const clienteNombre = useCartStore((s) => s.clienteNombre);
   const updateQty = useCartStore((s) => s.updateQty);
   const removeItem = useCartStore((s) => s.removeItem);
