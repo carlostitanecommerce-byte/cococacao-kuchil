@@ -31,6 +31,9 @@ interface Props {
 }
 
 export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaja }: Props) {
+  const { roles } = useAuth();
+  const isAdmin = roles.includes('administrador');
+
   const [montoContado, setMontoContado] = useState('');
   const [notasCierre, setNotasCierre] = useState('');
   const [saving, setSaving] = useState(false);
@@ -46,7 +49,8 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
   const [totalIVA, setTotalIVA] = useState(0);
   const [totalComisiones, setTotalComisiones] = useState(0);
   const [ventasPorUsuario, setVentasPorUsuario] = useState<VentaPorUsuario[]>([]);
-  const [sesionesActivas, setSesionesActivas] = useState<{ id: string; cliente_nombre: string }[]>([]);
+  const [sesionesActivas, setSesionesActivas] = useState<{ id: string; cliente_nombre: string; estado: string }[]>([]);
+
 
   useEffect(() => {
     if (!open) {
