@@ -312,9 +312,24 @@ const CategoriasManager = ({ isAdmin, ambitos, titulo, defaultAmbito }: Props) =
                           <Button variant="ghost" size="icon" onClick={() => openEdit(cat)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(cat)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {usoTotal > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span tabIndex={0}>
+                                  <Button variant="ghost" size="icon" disabled>
+                                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs max-w-xs">
+                                No se puede eliminar: hay {usoTotal} {cat.ambito === 'insumo' ? 'insumo' : 'producto'}{usoTotal === 1 ? '' : 's'} usando esta categoría. Renombra la categoría o reasigna los elementos primero.
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(cat)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     )}
