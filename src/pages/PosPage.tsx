@@ -556,6 +556,7 @@ const PosPage = () => {
         </Sheet>
       </div>
       {paqueteDialog}
+      {parkDialog}
     </>
   );
 };
