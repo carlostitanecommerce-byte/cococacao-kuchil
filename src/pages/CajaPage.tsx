@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -23,11 +23,14 @@ import { CajaCheckoutPanel } from '@/components/caja/CajaCheckoutPanel';
 
 import { useCajaCartStore } from '@/stores/cartStore';
 import type { CartItem } from '@/components/pos/types';
+import { supabase } from '@/integrations/supabase/client';
 
 const CajaPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const pendingSessionId = searchParams.get('session');
+  const autoImportOrdenId = searchParams.get('auto_import_orden');
+  const autoImportProcessedRef = useRef<string | null>(null);
   const { roles } = useAuth();
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCajaCartStore((s) => s.importCoworkingSession);
@@ -40,9 +43,58 @@ const CajaPage = () => {
   useEffect(() => {
     if (pendingSessionId && hasItems) {
       toast.warning('La sesión quedará pendiente. Termina el ticket actual para atenderla.');
-      setSearchParams({});
+      setSearchParams((prev) => {
+        const np = new URLSearchParams(prev);
+        np.delete('session');
+        return np;
+      });
     }
   }, [pendingSessionId, hasItems, setSearchParams]);
+
+  useEffect(() => {
+    if (!autoImportOrdenId) return;
+    if (!cajaAbierta) return;
+    if (autoImportProcessedRef.current === autoImportOrdenId) return;
+
+    const clearParam = () => {
+      setSearchParams((prev) => {
+        const np = new URLSearchParams(prev);
+        np.delete('auto_import_orden');
+        return np;
+      });
+    };
+
+    if (hasItems) {
+      autoImportProcessedRef.current = autoImportOrdenId;
+      clearParam();
+      return;
+    }
+
+    autoImportProcessedRef.current = autoImportOrdenId;
+    (async () => {
+      const { data, error } = await supabase
+        .from('ordenes_pos_pendientes')
+        .select('id, folio, cliente_nombre, items, total')
+        .eq('id', autoImportOrdenId)
+        .eq('estado', 'pendiente')
+        .maybeSingle();
+      if (error || !data) {
+        if (error) console.error(error);
+        toast.error('No se pudo auto-importar la orden');
+      } else {
+        handleImportOrden({
+          id: data.id,
+          folio: data.folio,
+          cliente_nombre: data.cliente_nombre,
+          items: Array.isArray(data.items) ? (data.items as unknown as CartItem[]) : [],
+          total: Number(data.total) || 0,
+          created_at: '',
+          usuario_id: '',
+        });
+      }
+      clearParam();
+    })();
+  }, [autoImportOrdenId, cajaAbierta, hasItems, setSearchParams]);
 
   const effectivePendingSessionId = hasItems ? null : pendingSessionId;
 
