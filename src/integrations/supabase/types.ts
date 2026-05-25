@@ -1588,7 +1588,12 @@ export type Database = {
         | "merma"
         | "rechazado"
       coworking_estado: "activo" | "finalizado" | "cancelado" | "pendiente_pago"
-      kds_estado: "pendiente" | "en_preparacion" | "listo" | "expirada"
+      kds_estado:
+        | "pendiente"
+        | "en_preparacion"
+        | "listo"
+        | "expirada"
+        | "cancelada"
       metodo_pago: "efectivo" | "tarjeta" | "transferencia" | "mixto"
       orden_pos_estado: "pendiente" | "cobrada" | "cancelada"
       reservacion_estado:
@@ -1742,7 +1747,13 @@ export const Constants = {
         "rechazado",
       ],
       coworking_estado: ["activo", "finalizado", "cancelado", "pendiente_pago"],
-      kds_estado: ["pendiente", "en_preparacion", "listo", "expirada"],
+      kds_estado: [
+        "pendiente",
+        "en_preparacion",
+        "listo",
+        "expirada",
+        "cancelada",
+      ],
       metodo_pago: ["efectivo", "tarjeta", "transferencia", "mixto"],
       orden_pos_estado: ["pendiente", "cobrada", "cancelada"],
       reservacion_estado: [
