@@ -154,27 +154,3 @@ export function useCajaSession() {
 
   return { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja, refetch: fetchCaja };
 }
-
-// Suma efectivo de ventas del turno: prioriza caja_id (vínculo directo) y
-// usa el rango de fechas como fallback solo para ventas legadas (sin caja_id).
-async function getVentasEfectivo(cajaId: string, fechaApertura: string, fechaCierre?: string): Promise<number> {
-  const fechaTope = fechaCierre ?? nowCDMX();
-
-  const { data: linked } = await supabase
-    .from('ventas')
-    .select('monto_efectivo')
-    .eq('estado', 'completada' as any)
-    .eq('caja_id', cajaId);
-
-  const { data: legacy } = await supabase
-    .from('ventas')
-    .select('monto_efectivo')
-    .eq('estado', 'completada' as any)
-    .is('caja_id', null)
-    .gte('fecha', fechaApertura)
-    .lte('fecha', fechaTope);
-
-  const sumLinked = (linked ?? []).reduce((s, v) => s + (v.monto_efectivo ?? 0), 0);
-  const sumLegacy = (legacy ?? []).reduce((s, v) => s + (v.monto_efectivo ?? 0), 0);
-  return sumLinked + sumLegacy;
-}

@@ -214,32 +214,25 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         return;
       }
 
-      // Insertar amenities directamente en detalle_ventas (cuenta abierta)
-      const detalleRows: any[] = [];
-      for (const a of amenityOptions) {
-        const qty = a.cantidad_incluida * pax;
-        detalleRows.push({
-          coworking_session_id: sessionData.id,
-          venta_id: null,
-          producto_id: a.producto_id,
-          cantidad: qty,
-          precio_unitario: 0,
-          subtotal: 0,
-          tipo_concepto: 'amenity',
-        });
-      }
-
-      if (detalleRows.length > 0) {
-        const { error: upsellErr } = await supabase
-          .from('detalle_ventas')
-          .insert(detalleRows);
-
-        if (upsellErr) {
+      // Registrar amenities a través de la RPC registrar_amenity_sesion para garantizar el descuento físico de stock
+      if (amenityOptions.length > 0) {
+        try {
+          for (const a of amenityOptions) {
+            const qty = a.cantidad_incluida * pax;
+            const { error: rpcErr } = await supabase.rpc('registrar_amenity_sesion', {
+              p_session_id: sessionData.id,
+              p_producto_id: a.producto_id,
+              p_cantidad: qty,
+            });
+            if (rpcErr) throw rpcErr;
+          }
+        } catch (rpcErr: any) {
+          // Si falla (por ejemplo, por falta de stock), revertimos la sesión creada
           await supabase.from('coworking_sessions').delete().eq('id', sessionData.id);
           toast({
             variant: 'destructive',
-            title: 'Error al añadir productos',
-            description: `${upsellErr.message}. La sesión fue revertida; intenta de nuevo.`,
+            title: 'Error al añadir amenities',
+            description: `${rpcErr.message || rpcErr}. La sesión fue revertida; intenta de nuevo.`,
           });
           return;
         }

@@ -191,7 +191,6 @@ export function CajaCheckoutPanel() {
         });
         const { data, error } = await supabase.rpc('validar_stock_carrito', {
           p_items: tentativos as any,
-          p_coworking_session_id: coworkingSessionId ?? null,
         });
         if (error) {
           toast.error('Sin conexión al validar stock. Intenta de nuevo.');

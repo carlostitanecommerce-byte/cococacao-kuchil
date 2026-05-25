@@ -22,7 +22,6 @@ const MAX_FONDO_FIJO = 10000;
 export function AperturaCajaDialog({ open, onAbrirCaja, onClose, allowSkip = false }: Props) {
   const [monto, setMonto] = useState('');
   const [saving, setSaving] = useState(false);
-  const [confirmHigh, setConfirmHigh] = useState(false);
 
   const ejecutar = async (val: number) => {
     setSaving(true);
@@ -43,7 +42,7 @@ export function AperturaCajaDialog({ open, onAbrirCaja, onClose, allowSkip = fal
       return;
     }
     if (val > MAX_FONDO_FIJO) {
-      setConfirmHigh(true);
+      toast.error(`El fondo fijo no puede exceder $${MAX_FONDO_FIJO.toLocaleString('es-MX')}`);
       return;
     }
     await ejecutar(val);
@@ -90,28 +89,6 @@ export function AperturaCajaDialog({ open, onAbrirCaja, onClose, allowSkip = fal
           </Button>
         </DialogFooter>
       </DialogContent>
-
-      <AlertDialog open={confirmHigh} onOpenChange={setConfirmHigh}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Fondo fijo inusualmente alto</AlertDialogTitle>
-            <AlertDialogDescription>
-              Estás a punto de abrir caja con ${parseFloat(monto || '0').toFixed(2)},
-              que supera el umbral típico de ${MAX_FONDO_FIJO.toLocaleString('es-MX')}.
-              Verifica que el monto sea correcto antes de continuar.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={saving}>Revisar</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={saving}
-              onClick={() => { setConfirmHigh(false); void ejecutar(parseFloat(monto)); }}
-            >
-              Confirmar y abrir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Dialog>
   );
 }

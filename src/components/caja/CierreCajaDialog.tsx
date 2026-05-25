@@ -45,9 +45,11 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
   const [ventasEfectivo, setVentasEfectivo] = useState(0);
   const [ventasTarjeta, setVentasTarjeta] = useState(0);
   const [ventasTransferencia, setVentasTransferencia] = useState(0);
-  const [totalVentas, setTotalVentas] = useState(0);
+  const [totalVentasBrutas, setTotalVentasBrutas] = useState(0);
+  const [totalVentasNetas, setTotalVentasNetas] = useState(0);
   const [totalIVA, setTotalIVA] = useState(0);
   const [totalComisiones, setTotalComisiones] = useState(0);
+  const [totalPropinas, setTotalPropinas] = useState(0);
   const [ventasPorUsuario, setVentasPorUsuario] = useState<VentaPorUsuario[]>([]);
   const [sesionesActivas, setSesionesActivas] = useState<{ id: string; cliente_nombre: string; estado: string }[]>([]);
 
@@ -64,7 +66,7 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
     const fetchVentas = async () => {
       const { data } = await supabase
         .from('ventas')
-        .select('monto_efectivo, monto_tarjeta, monto_transferencia, total_neto, iva, comisiones_bancarias, usuario_id')
+        .select('monto_efectivo, monto_tarjeta, monto_transferencia, total_bruto, total_neto, iva, comisiones_bancarias, monto_propina, usuario_id')
         .eq('estado', 'completada' as any)
         .eq('caja_id', caja.id);
 
@@ -72,9 +74,11 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
         setVentasEfectivo(data.reduce((s, v) => s + (v.monto_efectivo ?? 0), 0));
         setVentasTarjeta(data.reduce((s, v) => s + (v.monto_tarjeta ?? 0), 0));
         setVentasTransferencia(data.reduce((s, v) => s + (v.monto_transferencia ?? 0), 0));
-        setTotalVentas(data.reduce((s, v) => s + (v.total_neto ?? 0), 0));
+        setTotalVentasBrutas(data.reduce((s, v) => s + (v.total_bruto ?? 0), 0));
+        setTotalVentasNetas(data.reduce((s, v) => s + (v.total_neto ?? 0), 0));
         setTotalIVA(data.reduce((s, v) => s + (v.iva ?? 0), 0));
         setTotalComisiones(data.reduce((s, v) => s + (v.comisiones_bancarias ?? 0), 0));
+        setTotalPropinas(data.reduce((s, v) => s + (v.monto_propina ?? 0), 0));
 
         // Group by user
         const byUser: Record<string, { total: number; count: number }> = {};
@@ -187,15 +191,15 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
           </DialogHeader>
           <div className="space-y-4 text-sm">
             <div className="space-y-1">
-              <p className="font-semibold text-xs uppercase text-muted-foreground">Ventas del turno</p>
+              <p className="font-semibold text-xs uppercase text-muted-foreground">Ventas del Turno (Cobrado)</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <span className="text-muted-foreground">Total ventas:</span>
-                <span className="text-right font-medium">${totalVentas.toFixed(2)}</span>
-                <span className="text-muted-foreground">Efectivo:</span>
+                <span className="text-muted-foreground">Ventas Brutas:</span>
+                <span className="text-right font-semibold">${(ventasEfectivo + ventasTarjeta + ventasTransferencia).toFixed(2)}</span>
+                <span className="text-muted-foreground"> - Efectivo:</span>
                 <span className="text-right">${ventasEfectivo.toFixed(2)}</span>
-                <span className="text-muted-foreground">Tarjeta:</span>
+                <span className="text-muted-foreground"> - Tarjeta:</span>
                 <span className="text-right">${ventasTarjeta.toFixed(2)}</span>
-                <span className="text-muted-foreground">Transferencia:</span>
+                <span className="text-muted-foreground"> - Transferencia:</span>
                 <span className="text-right">${ventasTransferencia.toFixed(2)}</span>
               </div>
             </div>
@@ -203,12 +207,18 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
             <Separator />
 
             <div className="space-y-1">
-              <p className="font-semibold text-xs uppercase text-muted-foreground">Impuestos y comisiones</p>
+              <p className="font-semibold text-xs uppercase text-muted-foreground">Conciliación de Ingresos</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <span className="text-muted-foreground">IVA recaudado:</span>
+                <span className="text-muted-foreground">Ventas Netas (productos):</span>
+                <span className="text-right">${(totalVentasBrutas - totalPropinas).toFixed(2)}</span>
+                <span className="text-muted-foreground">IVA Recaudado:</span>
                 <span className="text-right">${totalIVA.toFixed(2)}</span>
-                <span className="text-muted-foreground">Comisiones bancarias:</span>
-                <span className="text-right">${totalComisiones.toFixed(2)}</span>
+                <span className="text-muted-foreground">Propinas Recibidas:</span>
+                <span className="text-right">${totalPropinas.toFixed(2)}</span>
+                <span className="text-muted-foreground">Comisiones Bancarias:</span>
+                <span className="text-right text-destructive">-${totalComisiones.toFixed(2)}</span>
+                <span className="text-muted-foreground font-bold">Ingreso Neto Negocio:</span>
+                <span className="text-right font-bold text-primary">${(totalVentasNetas + totalPropinas).toFixed(2)}</span>
               </div>
             </div>
 

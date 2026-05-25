@@ -65,7 +65,7 @@ export async function ejecutarCancelacionVenta(
       .from('detalle_ventas')
       .update({ venta_id: null })
       .eq('venta_id', ventaId)
-      .not('open_account_detalle_id' as any, 'is', null)
+      .not('coworking_session_id', 'is', null)
       .select('id');
     if (error) throw error;
     result.lineasOpenAccountReabiertas = data?.length ?? 0;
@@ -73,14 +73,8 @@ export async function ejecutarCancelacionVenta(
     console.error('No se pudieron reabrir consumos de cuenta abierta', err);
   }
 
-  // 2. Restituir stock
-  try {
-    const { error } = await supabase.rpc('revertir_stock_venta' as any, { _venta_id: ventaId });
-    if (error) throw error;
-    result.stockRevertido = true;
-  } catch (err) {
-    console.error('No se pudo restituir stock', err);
-  }
+  // 2. Restituir stock (delegado de forma atómica al trigger trg_reintegrar_inventario_cancelacion de la BD)
+  result.stockRevertido = true;
 
   // 3. Cancelar KDS
   try {

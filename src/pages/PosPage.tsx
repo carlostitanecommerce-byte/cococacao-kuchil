@@ -16,7 +16,6 @@ import { verificarStock } from '@/hooks/useValidarStock';
 import { usePosCartStore, useCajaCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsDesktop } from '@/hooks/use-mobile';
-import { enviarASesionKDS } from '@/components/coworking/sendToKitchen';
 import type { PaqueteOpcionSeleccionada } from '@/components/pos/types';
 
 interface PaqueteCtx { id: string; nombre: string; precio_venta: number }
