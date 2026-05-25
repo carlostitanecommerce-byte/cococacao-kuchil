@@ -23,6 +23,7 @@ import { CajaCheckoutPanel } from '@/components/caja/CajaCheckoutPanel';
 
 import { useCajaCartStore } from '@/stores/cartStore';
 import type { CartItem } from '@/components/pos/types';
+import { supabase } from '@/integrations/supabase/client';
 
 const CajaPage = () => {
   const navigate = useNavigate();
