@@ -343,36 +343,42 @@ const PosPage = () => {
   const [clienteRef, setClienteRef] = useState('');
   const [parking, setParking] = useState(false);
 
+  const insertOrdenPendiente = useCallback(async (clienteNombre: string | null) => {
+    if (!user?.id || items.length === 0) return null;
+    const { data: cajaAbierta } = await supabase
+      .from('cajas')
+      .select('id')
+      .eq('usuario_id', user.id)
+      .eq('estado', 'abierta')
+      .maybeSingle();
+
+    const { data, error } = await supabase
+      .from('ordenes_pos_pendientes')
+      .insert({
+        usuario_id: user.id,
+        caja_id: cajaAbierta?.id ?? null,
+        cliente_nombre: clienteNombre,
+        items: items as any,
+        total: subtotal,
+        tipo_consumo: 'sitio',
+      })
+      .select('id, folio')
+      .single();
+
+    if (error) {
+      console.error(error);
+      toast.error(error.message || 'No se pudo enviar a Caja');
+      return null;
+    }
+    return data as { id: string; folio: number };
+  }, [user?.id, items, subtotal]);
+
   const parkOrder = useCallback(async () => {
     if (!user?.id || items.length === 0) return;
     setParking(true);
     try {
-      const { data: cajaAbierta } = await supabase
-        .from('cajas')
-        .select('id')
-        .eq('usuario_id', user.id)
-        .eq('estado', 'abierta')
-        .maybeSingle();
-
-      const { data, error } = await supabase
-        .from('ordenes_pos_pendientes')
-        .insert({
-          usuario_id: user.id,
-          caja_id: cajaAbierta?.id ?? null,
-          cliente_nombre: clienteRef.trim() || null,
-          items: items as any,
-          total: subtotal,
-          tipo_consumo: 'sitio',
-        })
-        .select('folio')
-        .single();
-
-      if (error) {
-        console.error(error);
-        toast.error(error.message || 'No se pudo enviar a Caja');
-        return;
-      }
-
+      const data = await insertOrdenPendiente(clienteRef.trim() || null);
+      if (!data) return;
       const folioStr = String(data.folio).padStart(4, '0');
       toast.success(`Orden #${folioStr} enviada a Caja`);
       clear();
@@ -383,7 +389,23 @@ const PosPage = () => {
     } finally {
       setParking(false);
     }
-  }, [user?.id, items, subtotal, clienteRef, clear, navigate]);
+  }, [user?.id, items, clienteRef, insertOrdenPendiente, clear, navigate]);
+
+  const autoParkOrder = useCallback(async () => {
+    if (!user?.id || items.length === 0) return;
+    setParking(true);
+    try {
+      const data = await insertOrdenPendiente('Orden Rápida POS');
+      if (!data) return;
+      const folioStr = String(data.folio).padStart(4, '0');
+      toast.success(`Orden #${folioStr} enviada a Caja`);
+      clear();
+      setTicketOpen(false);
+      navigate(`/caja?auto_import_orden=${data.id}`);
+    } finally {
+      setParking(false);
+    }
+  }, [user?.id, items, insertOrdenPendiente, clear, navigate]);
 
   const goToCheckout = async () => {
     if (isOpenAccount) {
@@ -392,12 +414,16 @@ const PosPage = () => {
       return;
     }
     if (items.length === 0) return;
-    // Carritos POS y Caja están físicamente separados: la única vía de
-    // comunicación es la cola `ordenes_pos_pendientes`. Siempre parqueamos
-    // la orden antes de navegar a Caja para que el cajero la importe desde
-    // la cola en su propio carrito.
-    setClienteRef('');
-    setParkDialogOpen(true);
+    // Hint local: si en este dispositivo la Caja tiene un ticket abierto,
+    // pedimos referencia. Si no, auto-parqueamos y dejamos que Caja decida
+    // al recibir el query param (multi-dispositivo).
+    const cajaItems = useCajaCartStore.getState().items;
+    if (cajaItems.length === 0) {
+      await autoParkOrder();
+    } else {
+      setClienteRef('');
+      setParkDialogOpen(true);
+    }
   };
 
 
