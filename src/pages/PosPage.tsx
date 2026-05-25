@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowRight, ClipboardCheck, Inbox } from 'lucide-react';
 import { toast } from 'sonner';
 import { verificarStock } from '@/hooks/useValidarStock';
-import { usePosCartStore } from '@/stores/cartStore';
+import { usePosCartStore, useCajaCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsDesktop } from '@/hooks/use-mobile';
 import { enviarASesionKDS } from '@/components/coworking/sendToKitchen';
