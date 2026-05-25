@@ -1,100 +1,48 @@
-# Auto-Importación por URL (multi-dispositivo)
-
 ## Problema
 
-El flujo actual abre siempre el diálogo "Enviar orden a Caja" pidiendo referencia, incluso cuando Caja está libre. La iteración anterior (leer `useCajaCartStore` local desde POS) no sirve porque los Zustand son `sessionStorage` por dispositivo: el POS no puede saber si la Caja —que corre en otra máquina— está libre. La única fuente de verdad compartida es la base de datos.
+En tablet (ancho < 768px, tu viewport actual es 767px) la sidebar del componente shadcn `Sidebar` cambia automáticamente a modo **offcanvas** (un `Sheet` lateral oculto por defecto), en lugar del modo colapsado tipo "icon" que se ve en laptop/desktop. Como el único `SidebarTrigger` del proyecto vive **dentro** del propio `AppSidebar` (en `SidebarHeader`), cuando la barra está oculta en offcanvas no hay ningún botón visible para abrirla → quedas sin navegación.
+
+En laptop funciona porque ahí la barra siempre es visible (modo `icon`, 3rem de ancho) gracias a `collapsible="icon"` y `defaultOpen={false}`.
+
+## Causa raíz
+
+1. `useIsMobile()` (`src/hooks/use-mobile.tsx`) usa breakpoint 768px → todo lo menor se considera "mobile".
+2. El componente `Sidebar` de shadcn, cuando `isMobile === true`, se renderiza como `Sheet` (offcanvas) sin importar `collapsible="icon"`.
+3. El `SidebarTrigger` está dentro de `AppSidebar > SidebarHeader`, por lo que desaparece junto con la barra.
+
+No queremos tocar `src/components/ui/sidebar.tsx` (es shadcn) ni cambiar el breakpoint global, porque romperíamos el comportamiento real en celular.
 
 ## Solución
 
-Todas las órdenes pasan siempre por `ordenes_pos_pendientes` (única vía de comunicación). La diferencia entre "Caja libre" y "Caja ocupada" se resuelve **en Caja**, no en POS, mediante un query param `auto_import_orden=<id>` que dispara la importación automática al arribo.
+Agregar un **header superior persistente** en `DashboardLayout` que contenga un `SidebarTrigger` visible solo en tablet/móvil (`lg:hidden`). En laptop/desktop (`lg` y mayor) ese header no estorba y se mantiene el trigger interno de la barra colapsada como hoy.
 
-## Cambios
+### Cambio único: `src/components/DashboardLayout.tsx`
 
-### 1. `src/pages/PosPage.tsx`
-
-**`goToCheckout`** — eliminar la apertura del diálogo en el flujo normal:
-
-```text
-goToCheckout():
-  si isOpenAccount → chargeToOpenAccount() (sin cambios)
-  si items.length === 0 → return
-  
-  cajaItems = useCajaCartStore.getState().items
-  si cajaItems.length === 0:
-    autoParkOrder()        // sin diálogo, nombre por defecto
-  si no:
-    setClienteRef('')
-    setParkDialogOpen(true)  // flujo manual con referencia, como hoy
-```
-
-**Nueva función `autoParkOrder()`** — mismo INSERT que `parkOrder` pero:
-- `cliente_nombre: 'Orden Rápida POS'` (hardcodeado, sin diálogo).
-- Tras éxito, `clear()` del POS y `navigate('/caja?auto_import_orden=' + data.id)` (la query select trae `id` además de `folio`).
-- Toast: `Orden #XXXX enviada a Caja` (mismo que hoy).
-
-La función `parkOrder()` existente queda intacta para el caso "Caja ocupada con referencia opcional".
-
-> Nota: el POS local no puede ver el estado de Caja en otro equipo. Para el caso simple (un solo dispositivo donde ambos módulos corren en la misma sesión) la lectura de `useCajaCartStore` funciona como hint local. En multi-dispositivo, el efecto en Caja decide qué hacer al recibir la URL — ver paso 2.
-
-### 2. `src/pages/CajaPage.tsx`
-
-Agregar un `useEffect` paralelo al existente de `?session=`:
+- Importar `SidebarTrigger` desde `@/components/ui/sidebar`.
+- Agregar dentro del `<main>` una franja superior delgada (`h-12`, `border-b`, `bg-background/95 backdrop-blur`, `sticky top-0 z-30`) con clase `lg:hidden` que contiene solo el `SidebarTrigger`. Así:
+  - En tablet/móvil: aparece la barrita con el botón hamburguesa → al tocarlo abre la sidebar como Sheet lateral, igual que en mobile.
+  - En laptop/desktop: el header no se muestra (`lg:hidden`) y la sidebar sigue visible colapsada como hoy.
+- Mantener `defaultOpen={false}` en `SidebarProvider` (ya está). Esto asegura que cuando el usuario abra y cierre en tablet, el estado por defecto sea colapsado, consistente con laptop.
 
 ```text
-autoImportOrdenId = searchParams.get('auto_import_orden')
-
-useEffect(() => {
-  si !autoImportOrdenId → return
-  si !cajaAbierta → return  // espera a que haya turno abierto
-  
-  si hasItems:
-    // Caja ocupada: dejar la orden en la cola y limpiar URL.
-    // No mostramos toast bloqueante; la orden ya está visible en OrdenesPosSelector.
-    setSearchParams(params => quitar 'auto_import_orden')
-    return
-  
-  // Caja libre: traer la orden por id y ejecutar la misma lógica de handleImportOrden.
-  (async () => {
-    const { data, error } = await supabase
-      .from('ordenes_pos_pendientes')
-      .select('id, folio, cliente_nombre, items, total')
-      .eq('id', autoImportOrdenId)
-      .eq('estado', 'pendiente')
-      .maybeSingle()
-    si error o !data:
-      toast.error('No se pudo auto-importar la orden')
-    si no:
-      handleImportOrden({
-        id: data.id,
-        folio: data.folio,
-        cliente_nombre: data.cliente_nombre,
-        items: Array.isArray(data.items) ? data.items as CartItem[] : [],
-        total: Number(data.total) || 0,
-        created_at: '',
-        usuario_id: '',
-      })
-    setSearchParams(params => quitar 'auto_import_orden')
-  })()
-}, [autoImportOrdenId, cajaAbierta, hasItems])
+┌──────────────────────────────────────────┐
+│ [☰]  ← SidebarTrigger (solo <lg)         │  ← header sticky nuevo
+├──────────────────────────────────────────┤
+│                                          │
+│           contenido de la página         │
+│                                          │
+└──────────────────────────────────────────┘
 ```
 
-Detalles:
-- Usar un `ref` (`autoImportProcessedRef`) para garantizar que el efecto solo procesa una vez por id, evitando re-import si `hasItems` cambia justo después de importar.
-- `setSearchParams` debe preservar los demás params (usar callback form).
-- `handleImportOrden` ya existe y llama a `importOrdenPendiente` + toast de éxito; se reutiliza tal cual.
+### Lo que NO cambia
 
-### 3. Nada que cambiar
-
-- `ordenes_pos_pendientes`: schema, RLS y realtime sin cambios.
-- `OrdenesPosSelector`: sigue mostrando la cola normal; si la auto-importación corrió, la orden ya saldrá de "pendiente" cuando se cobre (Fase 5).
-- `cartStore` (Caja y POS): sin cambios. No se agrega `replaceItems`.
-- Diálogo de parqueo (`parkDialog`) y función `parkOrder`: se conservan para usuarios que quieran nombrar manualmente la orden (futuro botón secundario, fuera de alcance ahora).
+- `src/components/ui/sidebar.tsx` (shadcn).
+- `src/components/AppSidebar.tsx` (el trigger interno queda; se usa en desktop colapsado y dentro del Sheet en móvil/tablet para cerrarla).
+- El hook `useIsMobile` ni el breakpoint 768px.
+- Ninguna lógica de negocio (POS, caja, etc.).
 
 ## Resultado esperado
 
-| Escenario | Comportamiento |
-|---|---|
-| POS cobra, Caja libre (cualquier dispositivo) | Sin diálogo. Orden creada como "Orden Rápida POS", navega a `/caja?auto_import_orden=<id>`. Caja la importa automáticamente y limpia la URL. |
-| POS cobra, Caja ocupada (mismo dispositivo) | Sin diálogo (el hint local detecta items). Orden creada igual, navega a Caja, el efecto detecta `hasItems`, deja la orden en la cola y limpia la URL. |
-| POS cobra, Caja ocupada en otro dispositivo | El POS abre auto-importación, pero al llegar al otro equipo el efecto detecta `hasItems` y la deja en la cola. El cajero la verá en `OrdenesPosSelector`. |
-| Caja sin turno abierto | El efecto espera a `cajaAbierta`; al abrir caja se procesa el auto-import. |
+- Tablet (≤1023px): aparece un header superior con botón hamburguesa que abre/cierra la sidebar como panel lateral.
+- Laptop/desktop (≥1024px): sin cambios visuales; sidebar colapsada por defecto con sus iconos, igual que hoy.
+- Móvil: igual que tablet (ya era offcanvas, ahora con trigger accesible).
