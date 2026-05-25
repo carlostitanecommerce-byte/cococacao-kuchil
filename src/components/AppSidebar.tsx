@@ -68,12 +68,12 @@ export function AppSidebar() {
             Menú principal
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-2.5">
               {allMenuItems
                 .filter((item) => !item.allowedRoles || item.allowedRoles.some(r => roles.includes(r)))
                 .map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild tooltip={item.title} className="hover:bg-sidebar-accent">
+                  <SidebarMenuButton asChild tooltip={item.title} className="hover:bg-sidebar-accent min-h-[2.75rem] py-2.5">
                     <NavLink
                       to={item.url}
                       end
