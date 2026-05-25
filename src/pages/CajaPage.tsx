@@ -43,9 +43,58 @@ const CajaPage = () => {
   useEffect(() => {
     if (pendingSessionId && hasItems) {
       toast.warning('La sesión quedará pendiente. Termina el ticket actual para atenderla.');
-      setSearchParams({});
+      setSearchParams((prev) => {
+        const np = new URLSearchParams(prev);
+        np.delete('session');
+        return np;
+      });
     }
   }, [pendingSessionId, hasItems, setSearchParams]);
+
+  useEffect(() => {
+    if (!autoImportOrdenId) return;
+    if (!cajaAbierta) return;
+    if (autoImportProcessedRef.current === autoImportOrdenId) return;
+
+    const clearParam = () => {
+      setSearchParams((prev) => {
+        const np = new URLSearchParams(prev);
+        np.delete('auto_import_orden');
+        return np;
+      });
+    };
+
+    if (hasItems) {
+      autoImportProcessedRef.current = autoImportOrdenId;
+      clearParam();
+      return;
+    }
+
+    autoImportProcessedRef.current = autoImportOrdenId;
+    (async () => {
+      const { data, error } = await supabase
+        .from('ordenes_pos_pendientes')
+        .select('id, folio, cliente_nombre, items, total')
+        .eq('id', autoImportOrdenId)
+        .eq('estado', 'pendiente')
+        .maybeSingle();
+      if (error || !data) {
+        if (error) console.error(error);
+        toast.error('No se pudo auto-importar la orden');
+      } else {
+        handleImportOrden({
+          id: data.id,
+          folio: data.folio,
+          cliente_nombre: data.cliente_nombre,
+          items: Array.isArray(data.items) ? (data.items as unknown as CartItem[]) : [],
+          total: Number(data.total) || 0,
+          created_at: '',
+          usuario_id: '',
+        });
+      }
+      clearParam();
+    })();
+  }, [autoImportOrdenId, cajaAbierta, hasItems, setSearchParams]);
 
   const effectivePendingSessionId = hasItems ? null : pendingSessionId;
 
