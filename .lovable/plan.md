@@ -1,32 +1,44 @@
-## Mejor enfoque
+Causa raíz confirmada:
 
-En lugar de añadir un header con hamburguesa en tablet, hacer que la sidebar se comporte igual que en laptop: **siempre visible en modo icon-colapsado** desde tablet hacia arriba. Solo en celular real (<640px) seguirá siendo offcanvas (Sheet), porque ahí no cabe.
+El cambio anterior bajó `useIsMobile()` a 640px, pero el componente real del sidebar sigue usando clases Tailwind `md:block` y `md:flex` dentro de `src/components/ui/sidebar.tsx`.
 
-## Causa
+Eso provoca este hueco:
 
-El componente `Sidebar` de shadcn decide entre "icon-collapsed" y "offcanvas Sheet" según `useIsMobile()`, que hoy usa breakpoint **768px**. Todo lo menor a 768 → Sheet oculto → sin trigger visible.
+```text
+<640px      -> isMobile=true  -> Sheet/offcanvas correcto
+640–767px   -> isMobile=false -> intenta renderizar sidebar desktop
+              PERO el sidebar tiene hidden md:block / hidden md:flex
+              Resultado: no se ve nada
+>=768px     -> isMobile=false + md activo -> sidebar visible
+```
 
-## Cambios
+En tu viewport actual de tablet `767px`, cae exactamente en ese hueco: ya no es móvil para React, pero todavía no cumple `md` para CSS.
 
-### 1. `src/hooks/use-mobile.tsx`
-Bajar `MOBILE_BREAKPOINT` de **768 a 640**. Así:
-- Móvil real (<640px): sidebar en modo Sheet (offcanvas).
-- Tablet (640–1023px): sidebar visible en modo icon-colapsado, igual que laptop.
-- Laptop/desktop (≥1024px): sin cambios.
+Plan profesional para resolverlo definitivamente:
 
-Verificado que `useIsMobile` solo lo consume `src/components/ui/sidebar.tsx`. `useIsDesktop` (usado en `PosPage`) no se toca.
+1. Ajustar `src/components/ui/sidebar.tsx`
+   - Cambiar el breakpoint visual del sidebar desktop de `md` a `sm`:
+     - `hidden md:block` -> `hidden sm:block`
+     - `hidden md:flex` -> `hidden sm:flex`
+   - Esto alinea el CSS con `useIsMobile()`:
+     - `<640px`: no aparece la barra fija; se conserva el modo móvil/offcanvas.
+     - `640px–1023px`: aparece la barra izquierda colapsada con iconos.
+     - `>=1024px`: se mantiene el comportamiento de laptop/desktop.
 
-### 2. `src/components/DashboardLayout.tsx`
-**Revertir** el header sticky con `SidebarTrigger` que agregamos antes — ya no hace falta porque la barra colapsada queda visible y trae su propio trigger dentro del `SidebarHeader`. Volver a la versión simple original.
+2. Mantener `src/hooks/use-mobile.tsx` con `MOBILE_BREAKPOINT = 640`
+   - Ya es correcto conceptualmente; el problema no está ahí, sino en el desacople con `md` dentro del sidebar.
 
-## Resultado
+3. No reintroducir header sticky ni botón hamburguesa superior
+   - La navegación principal en tablet quedará igual que laptop: barra izquierda colapsada por defecto.
+   - El `SidebarTrigger` dentro de la propia barra seguirá permitiendo expandir/colapsar.
 
-- Tablet (incluyendo tu viewport actual 767px): aparece la barra lateral colapsada con iconos, idéntica a laptop. Click en el icono para expandir/colapsar.
-- Móvil <640px: sigue siendo Sheet offcanvas (cabe poco contenido, es lo correcto). En ese rango sí necesitaríamos un trigger externo si se vuelve un caso de uso real, pero hoy el sistema se opera en tablet/laptop, no en celulares <640.
+4. Validación después del cambio
+   - Revisar `/pos` en viewport de tablet de 767px: debe verse la barra izquierda colapsada.
+   - Revisar 768px/820px: debe seguir visible.
+   - Revisar móvil real `<640px`: debe seguir sin barra fija, usando el comportamiento móvil/offcanvas.
 
-## Lo que NO cambia
+Archivos a tocar:
 
-- `src/components/ui/sidebar.tsx` (shadcn intacto).
-- `src/components/AppSidebar.tsx` (mantiene su `SidebarTrigger` interno que ya funciona en modo icon).
-- `defaultOpen={false}` en `SidebarProvider` (colapsada por defecto).
-- Ninguna lógica de negocio.
+- `src/components/ui/sidebar.tsx` únicamente.
+
+No tocaré lógica de POS, Caja, rutas, autenticación ni base de datos.
