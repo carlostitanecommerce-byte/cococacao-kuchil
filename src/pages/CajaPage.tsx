@@ -29,6 +29,8 @@ const CajaPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const pendingSessionId = searchParams.get('session');
+  const autoImportOrdenId = searchParams.get('auto_import_orden');
+  const autoImportProcessedRef = useRef<string | null>(null);
   const { roles } = useAuth();
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, reversarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCajaCartStore((s) => s.importCoworkingSession);
