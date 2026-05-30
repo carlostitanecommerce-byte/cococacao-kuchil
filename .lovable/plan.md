@@ -1,44 +1,37 @@
-Causa raíz confirmada:
+# Cargar inventario físico al 30-may-2026
 
-El cambio anterior bajó `useIsMobile()` a 640px, pero el componente real del sidebar sigue usando clases Tailwind `md:block` y `md:flex` dentro de `src/components/ui/sidebar.tsx`.
+## Objetivo
+Pisar el `stock_actual` de la tabla `insumos` con las cantidades reales contadas en el Excel adjunto (columna **Stock (Unidades)**), para poder operar el POS con stock real.
 
-Eso provoca este hueco:
+## Alcance
+- **Solo** se actualiza la columna `stock_actual` de `public.insumos`.
+- El match se hace por `nombre` exacto (case-sensitive, con acentos y caracteres especiales tal cual aparecen en el Excel).
+- No se modifican: costos, presentaciones, unidades de medida, recetas, productos, ni cualquier otra tabla.
+- No se crean insumos nuevos. Si un nombre del Excel no existe en `insumos`, se reporta como "no encontrado" y se omite.
 
-```text
-<640px      -> isMobile=true  -> Sheet/offcanvas correcto
-640–767px   -> isMobile=false -> intenta renderizar sidebar desktop
-              PERO el sidebar tiene hidden md:block / hidden md:flex
-              Resultado: no se ve nada
->=768px     -> isMobile=false + md activo -> sidebar visible
+## Cómo se ejecuta
+Un único `UPDATE` masivo usando una lista `VALUES (nombre, stock)` cruzada con la tabla `insumos` por `nombre`. Esto se aplica con la herramienta de datos (no migración) ya que es una actualización de filas existentes.
+
+```sql
+UPDATE public.insumos AS i
+SET stock_actual = v.stock,
+    updated_at = now()
+FROM (VALUES
+  ('Agitador de madera p/café, bolsa de 500 pz', 220),
+  ('Agua botella Kirkland de 500 ml, caja de 40 pzs', 139),
+  -- ... 130+ filas con todos los insumos del Excel ...
+  ('Vaso pet de 16 oz ultra claro, paq 50 pzs', 34)
+) AS v(nombre, stock)
+WHERE i.nombre = v.nombre;
 ```
 
-En tu viewport actual de tablet `767px`, cae exactamente en ese hueco: ya no es móvil para React, pero todavía no cumple `md` para CSS.
+## Validación posterior
+1. Consultar `SELECT count(*), sum(stock_actual * costo_unitario) FROM insumos` para verificar que la valuación total se acerque a **$15,320.41** (total del Excel).
+2. Listar cualquier nombre del Excel que no haya hecho match en `insumos` y reportarlo para decidir si se crea manualmente o se ignora.
 
-Plan profesional para resolverlo definitivamente:
+## Consideraciones
+- Operación destructiva sobre `stock_actual`: el valor anterior se pierde (no hay historial por insumo). Esto es lo deseado: el inventario físico es la fuente de verdad al día de hoy.
+- No se generan movimientos en `compras_insumos` ni en `mermas` por este ajuste inicial.
+- Si en el futuro quieres trazabilidad de este ajuste, se puede registrar una entrada en `audit_logs` describiendo "Carga inicial de inventario físico 30-may-2026".
 
-1. Ajustar `src/components/ui/sidebar.tsx`
-   - Cambiar el breakpoint visual del sidebar desktop de `md` a `sm`:
-     - `hidden md:block` -> `hidden sm:block`
-     - `hidden md:flex` -> `hidden sm:flex`
-   - Esto alinea el CSS con `useIsMobile()`:
-     - `<640px`: no aparece la barra fija; se conserva el modo móvil/offcanvas.
-     - `640px–1023px`: aparece la barra izquierda colapsada con iconos.
-     - `>=1024px`: se mantiene el comportamiento de laptop/desktop.
-
-2. Mantener `src/hooks/use-mobile.tsx` con `MOBILE_BREAKPOINT = 640`
-   - Ya es correcto conceptualmente; el problema no está ahí, sino en el desacople con `md` dentro del sidebar.
-
-3. No reintroducir header sticky ni botón hamburguesa superior
-   - La navegación principal en tablet quedará igual que laptop: barra izquierda colapsada por defecto.
-   - El `SidebarTrigger` dentro de la propia barra seguirá permitiendo expandir/colapsar.
-
-4. Validación después del cambio
-   - Revisar `/pos` en viewport de tablet de 767px: debe verse la barra izquierda colapsada.
-   - Revisar 768px/820px: debe seguir visible.
-   - Revisar móvil real `<640px`: debe seguir sin barra fija, usando el comportamiento móvil/offcanvas.
-
-Archivos a tocar:
-
-- `src/components/ui/sidebar.tsx` únicamente.
-
-No tocaré lógica de POS, Caja, rutas, autenticación ni base de datos.
+¿Apruebas que proceda con el `UPDATE` masivo y el reporte de no-encontrados?
