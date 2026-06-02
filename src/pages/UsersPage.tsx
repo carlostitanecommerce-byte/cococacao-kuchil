@@ -12,7 +12,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { UserPlus, Shield, Trash2, Lock, LockOpen } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { UserPlus, Shield, Trash2, Lock, LockOpen, KeyRound } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Navigate } from 'react-router-dom';
 
