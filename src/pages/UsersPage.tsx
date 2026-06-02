@@ -12,7 +12,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { UserPlus, Shield, Trash2, Lock, LockOpen } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { UserPlus, Shield, Trash2, Lock, LockOpen, KeyRound } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Navigate } from 'react-router-dom';
 
@@ -52,6 +55,11 @@ const UsersPage = () => {
 
   // Password visibility state
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, string | null>>({});
+
+  // Reset password state
+  const [userToReset, setUserToReset] = useState<UserWithRole | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   const isAdmin = currentUserRoles.includes('administrador');
 
@@ -161,6 +169,43 @@ const UsersPage = () => {
       ...prev,
       [userId]: (data as string) ?? null,
     }));
+  };
+
+  const handleResetPassword = async () => {
+    if (!userToReset) return;
+    if (newPassword.length < 6) {
+      toast({ variant: 'destructive', title: 'Error', description: 'La contraseña debe tener al menos 6 caracteres' });
+      return;
+    }
+    setResetting(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      const res = await supabase.functions.invoke('reset-user-password', {
+        body: { user_id: userToReset.id, new_password: newPassword },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+
+      if (res.error || res.data?.error) {
+        toast({ variant: 'destructive', title: 'Error', description: res.data?.error || res.error?.message || 'No se pudo restablecer' });
+      } else {
+        toast({ title: `Contraseña restablecida para "${userToReset.nombre}"` });
+        setUserToReset(null);
+        setNewPassword('');
+        fetchUsers();
+        // Refrescar contraseña visible si estaba abierta
+        setVisiblePasswords((prev) => {
+          if (prev[userToReset.id] === undefined) return prev;
+          const next = { ...prev };
+          delete next[userToReset.id];
+          return next;
+        });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Error', description: 'Error de conexión' });
+    }
+    setResetting(false);
   };
 
   return (
@@ -287,17 +332,29 @@ const UsersPage = () => {
                         {new Date(u.created_at).toLocaleDateString('es-MX')}
                       </TableCell>
                       <TableCell>
-                        {u.id !== currentUser?.id && (
+                        <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            disabled={deletingId === u.id}
-                            onClick={() => setUserToDelete(u)}
+                            title="Restablecer contraseña"
+                            onClick={() => { setUserToReset(u); setNewPassword(''); }}
                           >
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <KeyRound className="h-4 w-4 text-primary" />
                           </Button>
-                        )}
+                          {u.id !== currentUser?.id && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title="Eliminar usuario"
+                              disabled={deletingId === u.id}
+                              onClick={() => setUserToDelete(u)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -328,6 +385,42 @@ const UsersPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Reset password dialog */}
+      <Dialog open={!!userToReset} onOpenChange={(open) => { if (!open) { setUserToReset(null); setNewPassword(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-primary" />
+              Restablecer contraseña
+            </DialogTitle>
+            <DialogDescription>
+              Asigna una nueva contraseña para <strong>{userToReset?.nombre}</strong>
+              {userToReset?.username && <> ({userToReset.username})</>}. La contraseña anterior dejará de funcionar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="reset-password">Nueva contraseña</Label>
+            <Input
+              id="reset-password"
+              type="text"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+              minLength={6}
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setUserToReset(null); setNewPassword(''); }} disabled={resetting}>
+              Cancelar
+            </Button>
+            <Button onClick={handleResetPassword} disabled={resetting || newPassword.length < 6}>
+              {resetting ? 'Restableciendo...' : 'Restablecer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
