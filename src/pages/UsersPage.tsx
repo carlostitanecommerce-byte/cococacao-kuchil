@@ -171,6 +171,43 @@ const UsersPage = () => {
     }));
   };
 
+  const handleResetPassword = async () => {
+    if (!userToReset) return;
+    if (newPassword.length < 6) {
+      toast({ variant: 'destructive', title: 'Error', description: 'La contraseña debe tener al menos 6 caracteres' });
+      return;
+    }
+    setResetting(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      const res = await supabase.functions.invoke('reset-user-password', {
+        body: { user_id: userToReset.id, new_password: newPassword },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+
+      if (res.error || res.data?.error) {
+        toast({ variant: 'destructive', title: 'Error', description: res.data?.error || res.error?.message || 'No se pudo restablecer' });
+      } else {
+        toast({ title: `Contraseña restablecida para "${userToReset.nombre}"` });
+        setUserToReset(null);
+        setNewPassword('');
+        fetchUsers();
+        // Refrescar contraseña visible si estaba abierta
+        setVisiblePasswords((prev) => {
+          if (prev[userToReset.id] === undefined) return prev;
+          const next = { ...prev };
+          delete next[userToReset.id];
+          return next;
+        });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Error', description: 'Error de conexión' });
+    }
+    setResetting(false);
+  };
+
   return (
     <div className="space-y-8">
       <div>
