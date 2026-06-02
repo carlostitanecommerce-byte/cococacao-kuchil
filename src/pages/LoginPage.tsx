@@ -99,7 +99,7 @@ const LoginPage = () => {
         </Card>
 
         <p className="text-center text-xs text-muted-foreground">
-          Sistema de Punto de Venta — v1.0
+          Sistema de Punto de Venta — v1.3
         </p>
       </div>
     </div>
