@@ -118,17 +118,50 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Update profile with username and encrypted password
-    await supabaseAdmin.rpc("encrypt_and_save_password", {
-      p_user_id: newUser.user.id,
+    const newUserId = newUser.user.id;
+
+    // Helper: rollback (eliminar usuario auth) si algo posterior falla
+    const rollback = async (reason: string) => {
+      try {
+        await supabaseAdmin.auth.admin.deleteUser(newUserId);
+      } catch (_) { /* noop */ }
+      return new Response(JSON.stringify({ error: reason }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    };
+
+    // Upsert defensivo del profile (por si el trigger handle_new_user no existe o falla)
+    const { error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .upsert(
+        { id: newUserId, nombre, email: fakeEmail, username: cleanUsername },
+        { onConflict: "id" }
+      );
+
+    if (profileError) {
+      return await rollback(`No se pudo crear el perfil: ${profileError.message}`);
+    }
+
+    // Encriptar y guardar contraseña
+    const { error: encryptError } = await supabaseAdmin.rpc("encrypt_and_save_password", {
+      p_user_id: newUserId,
       p_username: cleanUsername,
       p_password: password,
     });
 
+    if (encryptError) {
+      return await rollback(`No se pudo guardar la contraseña: ${encryptError.message}`);
+    }
+
     // Assign role
-    await supabaseAdmin
+    const { error: roleError } = await supabaseAdmin
       .from("user_roles")
-      .insert({ user_id: newUser.user.id, role });
+      .insert({ user_id: newUserId, role });
+
+    if (roleError) {
+      return await rollback(`No se pudo asignar el rol: ${roleError.message}`);
+    }
 
     // Audit log
     await supabaseAdmin
