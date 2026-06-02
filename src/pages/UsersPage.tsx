@@ -385,6 +385,42 @@ const UsersPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Reset password dialog */}
+      <Dialog open={!!userToReset} onOpenChange={(open) => { if (!open) { setUserToReset(null); setNewPassword(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-primary" />
+              Restablecer contraseña
+            </DialogTitle>
+            <DialogDescription>
+              Asigna una nueva contraseña para <strong>{userToReset?.nombre}</strong>
+              {userToReset?.username && <> ({userToReset.username})</>}. La contraseña anterior dejará de funcionar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="reset-password">Nueva contraseña</Label>
+            <Input
+              id="reset-password"
+              type="text"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+              minLength={6}
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setUserToReset(null); setNewPassword(''); }} disabled={resetting}>
+              Cancelar
+            </Button>
+            <Button onClick={handleResetPassword} disabled={resetting || newPassword.length < 6}>
+              {resetting ? 'Restableciendo...' : 'Restablecer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
