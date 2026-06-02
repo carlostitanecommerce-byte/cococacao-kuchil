@@ -332,17 +332,29 @@ const UsersPage = () => {
                         {new Date(u.created_at).toLocaleDateString('es-MX')}
                       </TableCell>
                       <TableCell>
-                        {u.id !== currentUser?.id && (
+                        <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            disabled={deletingId === u.id}
-                            onClick={() => setUserToDelete(u)}
+                            title="Restablecer contraseña"
+                            onClick={() => { setUserToReset(u); setNewPassword(''); }}
                           >
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <KeyRound className="h-4 w-4 text-primary" />
                           </Button>
-                        )}
+                          {u.id !== currentUser?.id && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title="Eliminar usuario"
+                              disabled={deletingId === u.id}
+                              onClick={() => setUserToDelete(u)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
