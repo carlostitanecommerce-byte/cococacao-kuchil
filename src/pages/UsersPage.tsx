@@ -56,6 +56,11 @@ const UsersPage = () => {
   // Password visibility state
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, string | null>>({});
 
+  // Reset password state
+  const [userToReset, setUserToReset] = useState<UserWithRole | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [resetting, setResetting] = useState(false);
+
   const isAdmin = currentUserRoles.includes('administrador');
 
   const fetchUsers = async () => {
