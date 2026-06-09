@@ -49,31 +49,36 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
   const [usuarioNombre, setUsuarioNombre] = useState('');
 
   const handlePrint = async () => {
-    if (!venta || !user) {
-      window.print();
-      return;
+    if (venta && user) {
+      try {
+        const total = Number(venta.total_bruto) + Number(venta.monto_propina);
+        await supabase.from('audit_logs').insert({
+          user_id: user.id,
+          accion: 'reimpresion_ticket',
+          descripcion: `Reimpresión de ticket #${String(venta.folio).padStart(4, '0')} ($${total.toFixed(2)}) por ${profile?.nombre ?? 'Usuario'}`,
+          metadata: {
+            venta_id: venta.id,
+            folio: venta.folio,
+            total_bruto: venta.total_bruto,
+            total_neto: venta.total_neto,
+            monto_propina: venta.monto_propina,
+            usuario_atendio: usuarioNombre,
+          },
+        });
+        toast.success('Reimpresión registrada');
+      } catch (err) {
+        console.error('No se pudo registrar la reimpresión', err);
+      }
     }
-    try {
-      // Cobrado al cliente = lo que pagó en su terminal/efectivo (no el neto del negocio).
-      const total = Number(venta.total_bruto) + Number(venta.monto_propina);
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        accion: 'reimpresion_ticket',
-        descripcion: `Reimpresión de ticket #${String(venta.folio).padStart(4, '0')} ($${total.toFixed(2)}) por ${profile?.nombre ?? 'Usuario'}`,
-        metadata: {
-          venta_id: venta.id,
-          folio: venta.folio,
-          total_bruto: venta.total_bruto,
-          total_neto: venta.total_neto,
-          monto_propina: venta.monto_propina,
-          usuario_atendio: usuarioNombre,
-        },
-      });
-      toast.success('Reimpresión registrada');
-    } catch (err) {
-      console.error('No se pudo registrar la reimpresión', err);
-    } finally {
+
+    const content = document.getElementById('ticket-reprint-area')?.innerHTML;
+    if (content) {
+      const printDiv = document.createElement('div');
+      printDiv.id = 'print-temp-container';
+      printDiv.innerHTML = content;
+      document.body.appendChild(printDiv);
       window.print();
+      document.body.removeChild(printDiv);
     }
   };
 
@@ -149,14 +154,7 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md overflow-hidden print:shadow-none print:border-0 print:max-w-full">
-        <style>{`
-          @media print {
-            body * { visibility: hidden !important; }
-            #ticket-reprint-area, #ticket-reprint-area * { visibility: visible !important; }
-            #ticket-reprint-area { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; font-size: 12px; }
-            .no-print, .no-print * { display: none !important; }
-          }
-        `}</style>
+
         <DialogHeader>
           <DialogTitle className="text-center">🧾 Re-impresión de Ticket</DialogTitle>
           <p className="text-center text-sm font-bold text-primary">Folio: #{String(venta.folio).padStart(4, '0')}</p>

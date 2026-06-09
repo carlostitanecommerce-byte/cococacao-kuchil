@@ -35,6 +35,10 @@ export interface CartItem {
   /** Si está presente, esta línea YA existe en detalle_ventas (venta_id NULL) y al cobrar
    *  sólo se le estampa el venta_id; NO debe re-insertarse ni reenviarse a cocina. */
   open_account_detalle_id?: string;
+  /** Indica si la línea es un regalo/cortesía (precio unitario y subtotal a 0) */
+  es_cortesia?: boolean;
+  /** Precio unitario original antes de convertirse en cortesía */
+  precio_original?: number;
 }
 
 export interface VentaConfig {

@@ -17,7 +17,7 @@ const URGENT_THRESHOLD_MIN = 10; // órdenes con >10 min se consideran urgentes
 const URGENT_REPEAT_MS = 30000; // re-toca timbre cada 30s mientras haya urgentes
 
 export default function CocinaPage() {
-  const { user, roles } = useAuth();
+  const { user, session, roles } = useAuth();
   useCancelacionItemsSesionToasts();
   // El diálogo de "Iniciar turno" y las alertas sonoras solo aplican al
   // barista. Admin/supervisor entran a Cocina únicamente a observar, sin
@@ -317,20 +317,7 @@ export default function CocinaPage() {
     fetchOrders();
   }, [fetchOrders]);
 
-  // ------- Sync Realtime auth token whenever the session changes -------
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session?.access_token) {
-        supabase.realtime.setAuth(data.session.access_token);
-      }
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.access_token) {
-        supabase.realtime.setAuth(session.access_token);
-      }
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
+
 
   // ------- Promedio de preparación del día (CDMX), fuente de verdad: DB -------
   // Lee las órdenes que terminaron en estado "listo" hoy y calcula el delta
@@ -379,6 +366,7 @@ export default function CocinaPage() {
   // Esto elimina el desfase de 1-5s del refetch debounced y la condición
   // de carrera que causaba el parpadeo en la lista de Listos.
   useEffect(() => {
+    if (!session) return;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
     let currentChannel: ReturnType<typeof supabase.channel> | null = null;
@@ -534,7 +522,7 @@ export default function CocinaPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (currentChannel) supabase.removeChannel(currentChannel);
     };
-  }, [fetchOrders, fetchSingleOrder, playNewOrderSound]);
+  }, [fetchOrders, fetchSingleOrder, playNewOrderSound, session]);
 
   // ------- Safety net: refetch on visibility/online y polling SOLO si NO estamos en vivo -------
   // Mientras el canal esté `live`, los handlers ya entregan todo. El polling

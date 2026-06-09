@@ -52,7 +52,7 @@ const FRACCION_LABELS: Record<string, string> = {
 };
 
 export function CoworkingSessionSelector({ onImportSession, importedSessionId, pendingSessionId, onPendingConsumed }: Props) {
-  const { roles } = useAuth();
+  const { session, roles } = useAuth();
   const { toast } = useToast();
   const isAdmin = roles.includes('administrador');
   const puedeCancelar =
@@ -109,6 +109,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   };
 
   useEffect(() => {
+    if (!session) return;
     fetchSessions();
 
     const channel = supabase
@@ -117,7 +118,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
       .on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_ventas' }, () => fetchSessions())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [session]);
 
   // Auto-import pending session from coworking checkout redirect.
   // Always consume the URL param once loading is done, even if the session

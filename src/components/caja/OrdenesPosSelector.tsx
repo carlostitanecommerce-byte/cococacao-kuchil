@@ -15,9 +15,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Search, Inbox, Plus, Clock, Wallet } from 'lucide-react';
+import { Search, Inbox, Plus, Clock, Wallet, Ban } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCajaCartStore } from '@/stores/cartStore';
+import { useAuth } from '@/hooks/useAuth';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import type { CartItem } from '@/components/pos/types';
 
 interface OrdenPendiente {
@@ -36,13 +40,24 @@ interface Props {
 }
 
 export function OrdenesPosSelector({ onImport }: Props) {
+  const { user, session, roles } = useAuth();
+  const puedeCancelar =
+    roles.includes('administrador') ||
+    roles.includes('supervisor') ||
+    roles.includes('caja') ||
+    roles.includes('recepcion');
+
   const cartItemCount = useCajaCartStore((s) => s.items.length);
   const ordenPendienteId = useCajaCartStore((s) => s.ordenPendienteId);
+  const clearCart = useCajaCartStore((s) => s.clear);
 
   const [ordenes, setOrdenes] = useState<OrdenPendiente[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [blockedFor, setBlockedFor] = useState<OrdenPendiente | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<OrdenPendiente | null>(null);
+  const [motivo, setMotivo] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   const fetchOrdenes = async () => {
     try {
@@ -84,6 +99,7 @@ export function OrdenesPosSelector({ onImport }: Props) {
   };
 
   useEffect(() => {
+    if (!session) return;
     fetchOrdenes();
     const channel = supabase
       .channel('ordenes-pos-pendientes-realtime')
@@ -96,7 +112,7 @@ export function OrdenesPosSelector({ onImport }: Props) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [session]);
 
   const handleClick = (orden: OrdenPendiente) => {
     if (cartItemCount > 0 && ordenPendienteId !== orden.id) {
@@ -104,6 +120,56 @@ export function OrdenesPosSelector({ onImport }: Props) {
       return;
     }
     onImport(orden);
+  };
+
+  const handleCancelConfirm = async () => {
+    if (!cancelTarget || !user) return;
+    if (!motivo.trim()) {
+      toast.error('Especifica el motivo de la cancelación');
+      return;
+    }
+    setCancelling(true);
+    try {
+      const { error } = await supabase
+        .from('ordenes_pos_pendientes')
+        .update({
+          estado: 'cancelada' as any,
+          cancelada_por: user.id,
+          motivo_cancelacion: motivo.trim(),
+        })
+        .eq('id', cancelTarget.id);
+
+      if (error) throw error;
+
+      // Audit log
+      const folioStr = String(cancelTarget.folio).padStart(4, '0');
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        accion: 'cancelar_orden_pendiente_pos',
+        descripcion: `Orden POS Pendiente cancelada - Folio: #${folioStr} - Cliente: ${cancelTarget.cliente_nombre || 'Sin nombre'} - Motivo: ${motivo.trim()}`,
+        metadata: {
+          orden_id: cancelTarget.id,
+          folio: cancelTarget.folio,
+          cliente_nombre: cancelTarget.cliente_nombre,
+          total: cancelTarget.total,
+          motivo: motivo.trim(),
+        },
+      });
+
+      // Si está cargada en el carrito activo de Caja, la des-importamos
+      if (ordenPendienteId === cancelTarget.id) {
+        clearCart();
+        toast.info('La orden cargada en el carrito activo fue cancelada.');
+      }
+
+      toast.success(`Orden #${folioStr} cancelada con éxito`);
+      setCancelTarget(null);
+      setMotivo('');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo cancelar la orden');
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const filtered = ordenes.filter((o) => {
@@ -185,15 +251,29 @@ export function OrdenesPosSelector({ onImport }: Props) {
                       )}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant={isImported ? 'secondary' : 'default'}
-                    className="h-7 text-xs"
-                    disabled={isImported}
-                    onClick={() => handleClick(o)}
-                  >
-                    {isImported ? 'Importado' : <><Plus className="h-3 w-3 mr-1" /> Importar</>}
-                  </Button>
+                  <div className="flex items-center gap-1.5 ml-2 shrink-0">
+                    {puedeCancelar && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setCancelTarget(o)}
+                        disabled={isImported}
+                        title="Cancelar orden"
+                      >
+                        <Ban className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant={isImported ? 'secondary' : 'default'}
+                      className="h-7 text-xs"
+                      disabled={isImported}
+                      onClick={() => handleClick(o)}
+                    >
+                      {isImported ? 'Importado' : <><Plus className="h-3 w-3 mr-1" /> Importar</>}
+                    </Button>
+                  </div>
                 </div>
               );
             })}
@@ -216,6 +296,56 @@ export function OrdenesPosSelector({ onImport }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!cancelTarget} onOpenChange={(o) => { if (!o && !cancelling) { setCancelTarget(null); setMotivo(''); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Ban className="h-5 w-5" />
+              Cancelar Orden POS Pendiente
+            </DialogTitle>
+            <DialogDescription className="text-left">
+              ¿Estás seguro de que deseas cancelar la orden{' '}
+              <span className="font-mono font-semibold">
+                #{cancelTarget && String(cancelTarget.folio).padStart(4, '0')}
+              </span>
+              {cancelTarget?.cliente_nombre ? ` de ${cancelTarget.cliente_nombre}` : ''}?
+              Esta acción liberará la orden de la cola y no se podrá cobrar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="motivo-cancel-orden" className="text-sm font-medium">
+              Motivo de cancelación <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="motivo-cancel-orden"
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Ej: Cliente canceló consumo, error al capturar, etc..."
+              className="min-h-[80px]"
+              maxLength={200}
+              disabled={cancelling}
+            />
+            <p className="text-xs text-muted-foreground text-right">{motivo.length}/200</p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setCancelTarget(null); setMotivo(''); }}
+              disabled={cancelling}
+            >
+              Regresar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCancelConfirm}
+              disabled={!motivo.trim() || cancelling}
+            >
+              {cancelling ? 'Cancelando...' : 'Confirmar Cancelación'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

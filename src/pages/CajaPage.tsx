@@ -36,6 +36,8 @@ const CajaPage = () => {
   const importCoworkingSession = useCajaCartStore((s) => s.importCoworkingSession);
   const coworkingSessionId = useCajaCartStore((s) => s.coworkingSessionId);
   const importOrdenPendiente = useCajaCartStore((s) => s.importOrdenPendiente);
+  const ordenPendienteId = useCajaCartStore((s) => s.ordenPendienteId);
+  const clear = useCajaCartStore((s) => s.clear);
   const hasItems = useCajaCartStore((s) => s.items.length > 0);
   const [cierreOpen, setCierreOpen] = useState(false);
   const [aperturaCerrada, setAperturaCerrada] = useState(false);
@@ -50,6 +52,102 @@ const CajaPage = () => {
       });
     }
   }, [pendingSessionId, hasItems, setSearchParams]);
+
+  // Escuchar cambios en tiempo real en la sesión de coworking importada
+  useEffect(() => {
+    if (!coworkingSessionId) return;
+
+    let active = true;
+    supabase
+      .from('coworking_sessions')
+      .select('estado')
+      .eq('id', coworkingSessionId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          console.error('Error al verificar estado de la sesión de coworking:', error);
+          return;
+        }
+        if (!data || data.estado !== 'pendiente_pago') {
+          clear();
+          toast.info('La sesión de coworking importada ya no está pendiente de pago.');
+        }
+      });
+
+    const channel = supabase
+      .channel(`caja-imported-session-${coworkingSessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'coworking_sessions',
+          filter: `id=eq.${coworkingSessionId}`,
+        },
+        (payload) => {
+          const newStatus = payload.new?.estado;
+          if (newStatus && newStatus !== 'pendiente_pago') {
+            clear();
+            toast.info('La sesión de coworking importada fue reabierta o cancelada desde otra pantalla.');
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [coworkingSessionId, clear]);
+
+  // Escuchar cambios en tiempo real en la orden de POS importada
+  useEffect(() => {
+    if (!ordenPendienteId) return;
+
+    let active = true;
+    supabase
+      .from('ordenes_pos_pendientes')
+      .select('estado')
+      .eq('id', ordenPendienteId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          console.error('Error al verificar estado de la orden POS:', error);
+          return;
+        }
+        if (!data || data.estado !== 'pendiente') {
+          clear();
+          toast.info('La orden POS importada ya no está pendiente.');
+        }
+      });
+
+    const channel = supabase
+      .channel(`caja-imported-orden-${ordenPendienteId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'ordenes_pos_pendientes',
+          filter: `id=eq.${ordenPendienteId}`,
+        },
+        (payload) => {
+          const newStatus = payload.new?.estado;
+          if (newStatus && newStatus !== 'pendiente') {
+            clear();
+            toast.info('La orden POS importada fue cancelada o cobrada desde otra pantalla.');
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [ordenPendienteId, clear]);
 
   useEffect(() => {
     if (!autoImportOrdenId) return;

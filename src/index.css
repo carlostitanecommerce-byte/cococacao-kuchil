@@ -100,3 +100,45 @@
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 }
+
+@media print {
+  /* Ocultar absolutamente todos los elementos directos del body excepto el contenedor de impresión */
+  body > *:not(#print-temp-container) {
+    display: none !important;
+  }
+  
+  /* Mostrar y dar formato al contenedor temporal del ticket */
+  body > #print-temp-container {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 380px !important; /* Ancho idóneo para ticket en hoja tradicional */
+    margin: 0 auto !important;
+    padding: 12px !important;
+    font-family: monospace !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+    color: black !important;
+    background: white !important;
+  }
+
+  /* Asegurar que el body permita flujo natural sin overlays de scroll */
+  body, html {
+    background: white !important;
+    color: black !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Estilo clásico dashed para separadores */
+  body > #print-temp-container hr {
+    border-top: 1px dashed black !important;
+    border-bottom: none !important;
+    background: none !important;
+    height: 0 !important;
+    margin: 10px 0 !important;
+  }
+}
+

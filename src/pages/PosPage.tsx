@@ -39,6 +39,7 @@ const PosPage = () => {
   const updateNotas = usePosCartStore((s) => s.updateNotas);
   const removeItem = usePosCartStore((s) => s.removeItem);
   const clear = usePosCartStore((s) => s.clear);
+  const toggleCortesia = usePosCartStore((s) => s.toggleCortesia);
   const coworkingSessionId = usePosCartStore((s) => s.coworkingSessionId);
   const clienteNombre = usePosCartStore((s) => s.clienteNombre);
   const tarifaUpsells = usePosCartStore((s) => s.tarifaUpsells);
@@ -504,6 +505,7 @@ const PosPage = () => {
                 subtotal={subtotal}
                 coworkingSessionActive={isOpenAccount}
                 clienteNombre={clienteNombre}
+                onToggleCortesia={toggleCortesia}
               />
             </div>
             <Button
@@ -554,6 +556,7 @@ const PosPage = () => {
                 subtotal={subtotal}
                 coworkingSessionActive={isOpenAccount}
                 clienteNombre={clienteNombre}
+                onToggleCortesia={toggleCortesia}
               />
             </div>
             <Button

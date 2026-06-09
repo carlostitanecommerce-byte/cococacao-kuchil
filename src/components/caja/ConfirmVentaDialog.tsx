@@ -24,6 +24,17 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
   const inFlightRef = useRef(false);
   const ventaIdRef = useRef<string | null>(null);
 
+  const handlePrint = () => {
+    const content = document.getElementById('ticket-print-area')?.innerHTML;
+    if (!content) return;
+    const printDiv = document.createElement('div');
+    printDiv.id = 'print-temp-container';
+    printDiv.innerHTML = content;
+    document.body.appendChild(printDiv);
+    window.print();
+    document.body.removeChild(printDiv);
+  };
+
   useEffect(() => {
     const pid = summary?.plataforma_id;
     if (!pid) { setNombrePlataforma(null); return; }
@@ -425,14 +436,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
     return (
       <Dialog open onOpenChange={handleCloseTicket}>
         <DialogContent className="sm:max-w-md overflow-hidden print:shadow-none print:border-0 print:max-w-full">
-          <style>{`
-            @media print {
-              body * { visibility: hidden !important; }
-              #ticket-print-area, #ticket-print-area * { visibility: visible !important; }
-              #ticket-print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; font-size: 12px; }
-              .no-print, .no-print * { display: none !important; }
-            }
-          `}</style>
+
           <DialogHeader>
             <DialogTitle className="text-center">🧾 Ticket de Venta</DialogTitle>
             {ticket.folio && (
@@ -483,7 +487,10 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
                 {paqueteItemsTicket.map(p => (
                   <div key={p.lineId ?? p.producto_id}>
                     <div className="flex justify-between gap-2">
-                      <span className="flex-1 break-words min-w-0">{p.cantidad}x {p.nombre}</span>
+                      <span className="flex-1 break-words min-w-0">
+                        {p.cantidad}x {p.nombre}
+                        {p.es_cortesia && <span className="text-[11px] text-primary font-bold ml-1">(Cortesía)</span>}
+                      </span>
                       <span className="shrink-0">${p.subtotal.toFixed(2)}</span>
                     </div>
                     {(p.componentes ?? []).length > 0 && (
@@ -505,7 +512,10 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
                 <p className="font-bold text-xs uppercase text-muted-foreground">Productos</p>
                 {productoItems.map(i => (
                   <div key={i.producto_id} className="flex justify-between gap-2">
-                    <span className="flex-1 break-words min-w-0">{i.cantidad}x {i.nombre}</span>
+                    <span className="flex-1 break-words min-w-0">
+                      {i.cantidad}x {i.nombre}
+                      {i.es_cortesia && <span className="text-[11px] text-primary font-bold ml-1">(Cortesía)</span>}
+                    </span>
                     <span className="shrink-0">${i.subtotal.toFixed(2)}</span>
                   </div>
                 ))}
@@ -551,7 +561,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
           </div>
 
           <DialogFooter className="no-print gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => window.print()}>
+            <Button variant="outline" className="flex-1" onClick={handlePrint}>
               <Printer className="h-4 w-4 mr-2" /> Imprimir
             </Button>
             <Button className="flex-1" onClick={handleCloseTicket}>
@@ -586,7 +596,10 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             {summary!.items.map(item => (
               <div key={item.lineId ?? item.producto_id}>
                 <div className="flex justify-between gap-2 text-sm">
-                  <span className="flex-1 break-words min-w-0">{item.cantidad}x {item.nombre}</span>
+                  <span className="flex-1 break-words min-w-0">
+                    {item.cantidad}x {item.nombre}
+                    {item.es_cortesia && <span className="text-xs text-primary font-bold ml-1.5">(Cortesía)</span>}
+                  </span>
                   <span className="font-medium shrink-0">${item.subtotal.toFixed(2)}</span>
                 </div>
                 {item.tipo_concepto === 'paquete' && (item.componentes ?? []).length > 0 && (

@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle, Lock, AlertTriangle, Info } from 'lucide-react';
+import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle, Lock, AlertTriangle, Info, Gift } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useCajaCartStore } from '@/stores/cartStore';
@@ -20,6 +20,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { VentaSummary, MixedPayment, CartItem } from '@/components/pos/types';
+import { cn } from '@/lib/utils';
+
 
 type MetodoPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
 type TipoConsumo = 'sitio' | 'para_llevar' | 'delivery';
@@ -32,6 +34,7 @@ export function CajaCheckoutPanel() {
   const updateQty = useCajaCartStore((s) => s.updateQty);
   const removeItem = useCajaCartStore((s) => s.removeItem);
   const clear = useCajaCartStore((s) => s.clear);
+  const toggleCortesia = useCajaCartStore((s) => s.toggleCortesia);
 
   const { config } = useVentaConfig();
   const { cajaAbierta } = useCajaSession();
@@ -84,7 +87,7 @@ export function CajaCheckoutPanel() {
   const displayItems = useMemo<CartItem[]>(() => {
     if (!deliveryOverrideActive) return items;
     return items.map((it) => {
-      if (it.tipo_concepto === 'coworking' || it.open_account_detalle_id) return it;
+      if (it.tipo_concepto === 'coworking' || it.open_account_detalle_id || it.es_cortesia) return it;
       const lookupId = it.paquete_id ?? it.producto_id;
       const override = preciosDelivery[lookupId];
       if (override == null || override === it.precio_unitario) return it;
@@ -255,7 +258,8 @@ export function CajaCheckoutPanel() {
       const { error } = await supabase
         .from('ordenes_pos_pendientes')
         .update({ estado: 'cobrada', venta_id: ventaId || null })
-        .eq('id', ordenPendienteId);
+        .eq('id', ordenPendienteId)
+        .eq('estado', 'pendiente');
       if (error) {
         console.error('No se pudo marcar la orden pendiente como cobrada', error);
         toast.error('La venta se registró pero la orden quedó en la cola. Notifica al administrador.');
@@ -334,14 +338,30 @@ export function CajaCheckoutPanel() {
               <div key={k} className={`flex items-center gap-2 text-sm border border-border rounded-md p-2 ${readOnly ? 'bg-muted/30' : ''}`}>
 
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{item.nombre}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-medium truncate">{item.nombre}</p>
+                    {item.es_cortesia && (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-primary text-primary shrink-0 font-semibold bg-primary/5">
+                        Cortesía
+                      </Badge>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-xs text-muted-foreground">
-                      {priceOverridden && (
-                        <span className="line-through mr-1 opacity-60">${original.precio_unitario.toFixed(2)}</span>
+                      {item.es_cortesia && item.precio_original != null ? (
+                        <>
+                          <span className="line-through mr-1 opacity-55">${item.precio_original.toFixed(2)}</span>
+                          <span className="text-primary font-semibold">$0.00 c/u</span>
+                        </>
+                      ) : (
+                        <>
+                          {priceOverridden && (
+                            <span className="line-through mr-1 opacity-60">${original.precio_unitario.toFixed(2)}</span>
+                          )}
+                          <span className={priceOverridden ? 'text-primary font-medium' : ''}>${item.precio_unitario.toFixed(2)}</span>
+                          <span> c/u</span>
+                        </>
                       )}
-                      <span className={priceOverridden ? 'text-primary font-medium' : ''}>${item.precio_unitario.toFixed(2)}</span>
-                      <span> c/u</span>
                     </p>
                     {readOnly && (
                       <Badge variant="secondary" className="text-[10px] px-1 h-4 gap-1">
@@ -359,6 +379,18 @@ export function CajaCheckoutPanel() {
                     <span className="w-5 text-center text-xs">{item.cantidad}</span>
                     <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => handleIncrement(item)} disabled={isBusy}>
                       <Plus className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        'h-6 w-6 ml-1',
+                        item.es_cortesia ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:bg-muted'
+                      )}
+                      title={item.es_cortesia ? 'Quitar cortesía' : 'Marcar como cortesía'}
+                      onClick={() => toggleCortesia(k)}
+                    >
+                      <Gift className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 ) : (

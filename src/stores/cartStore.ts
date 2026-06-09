@@ -29,6 +29,7 @@ export interface CartState {
   setActiveCoworkingSession: (sessionId: string | null, clienteNombre: string | null) => void;
   setOrdenPendienteId: (id: string | null) => void;
   setTarifaUpsells: (map: Record<string, number>) => void;
+  toggleCortesia: (key: string) => void;
 }
 
 const createCartStore = (persistKey: string) =>
@@ -56,7 +57,7 @@ const createCartStore = (persistKey: string) =>
           const items = get().items;
           const incoming = ensureLineId({ ...item, lineId: item.producto_id });
           const existing = items.find(
-            (i) => i.producto_id === incoming.producto_id && i.tipo_concepto === 'producto'
+            (i) => i.producto_id === incoming.producto_id && i.tipo_concepto === 'producto' && !i.es_cortesia
           );
           if (existing) {
             set({
@@ -82,7 +83,7 @@ const createCartStore = (persistKey: string) =>
           }
           const incoming = ensureLineId({ ...item, lineId: item.producto_id });
           const existing = items.find(
-            (i) => i.producto_id === incoming.producto_id && i.tipo_concepto === 'paquete' && !i.opciones
+            (i) => i.producto_id === incoming.producto_id && i.tipo_concepto === 'paquete' && !i.opciones && !i.es_cortesia
           );
           if (existing) {
             set({
@@ -132,6 +133,37 @@ const createCartStore = (persistKey: string) =>
           set({ coworkingSessionId: sessionId, clienteNombre }),
         setOrdenPendienteId: (id) => set({ ordenPendienteId: id }),
         setTarifaUpsells: (map) => set({ tarifaUpsells: map }),
+        toggleCortesia: (key) =>
+          set({
+            items: get().items.map((i) => {
+              if (keyOf(i) !== key) return i;
+              const esCortesia = !i.es_cortesia;
+              if (esCortesia) {
+                const originalPrice = i.precio_original ?? i.precio_unitario;
+                const lineId = i.lineId && i.lineId !== i.producto_id 
+                  ? i.lineId 
+                  : `cortesia-${i.producto_id}-${Date.now()}`;
+                return {
+                  ...i,
+                  lineId,
+                  es_cortesia: true,
+                  precio_original: originalPrice,
+                  precio_unitario: 0,
+                  subtotal: 0,
+                };
+              } else {
+                const restoredPrice = i.precio_original ?? 0;
+                const lineId = i.tipo_concepto === 'producto' ? i.producto_id : i.lineId;
+                return {
+                  ...i,
+                  lineId,
+                  es_cortesia: false,
+                  precio_unitario: restoredPrice,
+                  subtotal: i.cantidad * restoredPrice,
+                };
+              }
+            }),
+          }),
       }),
       {
         name: persistKey,

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Trash2, Plus, Minus, ShoppingCart, Package, MessageSquare } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingCart, Package, MessageSquare, Gift } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,7 @@ interface Props {
   subtotal: number;
   coworkingSessionActive?: boolean;
   clienteNombre?: string | null;
+  onToggleCortesia?: (lineId: string) => void;
 }
 
 const keyOf = (i: CartItem) => i.lineId ?? i.producto_id;
@@ -62,7 +63,7 @@ function NotesPopover({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
-export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear, subtotal, coworkingSessionActive, clienteNombre }: Props) {
+export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear, subtotal, coworkingSessionActive, clienteNombre, onToggleCortesia }: Props) {
   const productoItems = items.filter(i => i.tipo_concepto === 'producto');
   const paqueteItems = items.filter(i => i.tipo_concepto === 'paquete');
 
@@ -88,7 +89,14 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
           <div className="flex items-start gap-1.5 min-w-0 flex-1">
             {isPaquete && <Package className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />}
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium leading-tight line-clamp-2">{item.nombre}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-sm font-medium leading-tight line-clamp-2">{item.nombre}</p>
+                {item.es_cortesia && (
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-primary text-primary shrink-0 font-semibold bg-primary/5">
+                    Cortesía
+                  </Badge>
+                )}
+              </div>
               {item.precio_especial && (
                 <Badge variant="outline" className="mt-1 text-[9px] px-1 py-0 h-4 border-primary text-primary w-fit">
                   Tarifa Coworking
@@ -104,7 +112,14 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
         {/* Fila 2: precio unitario + stepper + acciones */}
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground tabular-nums">
-            ${item.precio_unitario.toFixed(2)} c/u
+            {item.es_cortesia && item.precio_original != null ? (
+              <>
+                <span className="line-through mr-1 opacity-50">${item.precio_original.toFixed(2)}</span>
+                <span className="text-primary font-semibold">$0.00 c/u</span>
+              </>
+            ) : (
+              `$${item.precio_unitario.toFixed(2)} c/u`
+            )}
           </p>
           <div className="flex items-center gap-1.5">
             <div className="flex items-center gap-0.5 rounded-md bg-muted/50 p-0.5">
@@ -128,9 +143,23 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
                 <Plus className="h-3 w-3" />
               </Button>
             </div>
+            {onToggleCortesia && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  'h-6 w-6',
+                  item.es_cortesia ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:bg-muted'
+                )}
+                title={item.es_cortesia ? 'Quitar cortesía' : 'Marcar como cortesía'}
+                onClick={() => onToggleCortesia(k)}
+              >
+                <Gift className="h-3.5 w-3.5" />
+              </Button>
+            )}
             {onUpdateNotas && (
               <NotesPopover
-                value={item.notas ?? ''}
+                value={item.notes ?? item.notas ?? ''}
                 onChange={(v) => onUpdateNotas(k, v)}
               />
             )}
