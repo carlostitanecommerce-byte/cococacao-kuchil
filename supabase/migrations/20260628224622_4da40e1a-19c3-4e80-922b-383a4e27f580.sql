@@ -1,0 +1,110 @@
+
+CREATE OR REPLACE FUNCTION public.cerrar_caja(p_caja_id uuid, p_monto_cierre numeric, p_notas_cierre text DEFAULT NULL::text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_user uuid := auth.uid();
+  v_caja RECORD;
+  v_ventas_efectivo numeric;
+  v_entradas numeric;
+  v_salidas numeric;
+  v_esperado numeric;
+  v_diferencia numeric;
+  v_es_admin boolean;
+  v_pendiente_pago_count int;
+  v_sesiones_snapshot jsonb;
+  v_notas text := NULLIF(trim(coalesce(p_notas_cierre,'')), '');
+  v_umbral_dif numeric := 5;
+  v_kds_expiradas int := 0;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'No autenticado' USING ERRCODE='42501'; END IF;
+  IF NOT (
+    has_role(v_user,'administrador'::app_role) OR has_role(v_user,'supervisor'::app_role) OR
+    has_role(v_user,'caja'::app_role) OR has_role(v_user,'recepcion'::app_role)
+  ) THEN
+    RAISE EXCEPTION 'Permisos insuficientes' USING ERRCODE='42501';
+  END IF;
+
+  v_es_admin := has_role(v_user,'administrador'::app_role);
+
+  SELECT * INTO v_caja FROM public.cajas
+   WHERE id = p_caja_id AND estado = 'abierta'::caja_estado FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Caja no encontrada o ya cerrada'; END IF;
+
+  SELECT
+    COUNT(*) FILTER (WHERE estado = 'pendiente_pago'::coworking_estado),
+    COALESCE(jsonb_agg(jsonb_build_object(
+      'id', id,
+      'cliente_nombre', cliente_nombre,
+      'estado', estado,
+      'monto_acumulado', monto_acumulado,
+      'fecha_inicio', fecha_inicio
+    )) FILTER (WHERE estado IN ('activo'::coworking_estado,'pendiente_pago'::coworking_estado)),
+      '[]'::jsonb)
+  INTO v_pendiente_pago_count, v_sesiones_snapshot
+  FROM public.coworking_sessions;
+
+  IF v_pendiente_pago_count > 0 AND NOT v_es_admin THEN
+    RAISE EXCEPTION 'Hay % sesión(es) de coworking pendientes de pago. Cóbralas o pide a un administrador que cierre la caja.', v_pendiente_pago_count;
+  END IF;
+  IF v_pendiente_pago_count > 0 AND v_es_admin AND v_notas IS NULL THEN
+    RAISE EXCEPTION 'Notas de cierre obligatorias: indica por qué se cierra con % sesión(es) pendientes de pago.', v_pendiente_pago_count;
+  END IF;
+
+  SELECT COALESCE(SUM(monto_efectivo),0) INTO v_ventas_efectivo
+    FROM public.ventas
+   WHERE estado='completada'::venta_estado AND caja_id = p_caja_id;
+
+  SELECT
+    COALESCE(SUM(CASE WHEN tipo='entrada' THEN monto ELSE 0 END),0),
+    COALESCE(SUM(CASE WHEN tipo='salida'  THEN monto ELSE 0 END),0)
+    INTO v_entradas, v_salidas
+    FROM public.movimientos_caja WHERE caja_id = p_caja_id;
+
+  v_esperado := v_caja.monto_apertura + v_ventas_efectivo + v_entradas - v_salidas;
+  v_diferencia := p_monto_cierre - v_esperado;
+
+  IF abs(v_diferencia) > v_umbral_dif AND v_notas IS NULL THEN
+    RAISE EXCEPTION 'Notas de cierre obligatorias cuando hay diferencia mayor a $%', v_umbral_dif;
+  END IF;
+
+  UPDATE public.cajas SET
+    estado='cerrada'::caja_estado, monto_cierre=p_monto_cierre,
+    fecha_cierre=now(), diferencia=v_diferencia, notas_cierre=v_notas
+   WHERE id = p_caja_id;
+
+  -- Expirar órdenes de cocina activas para limpiar el tablero KDS al cerrar el turno.
+  WITH upd AS (
+    UPDATE public.kds_orders
+       SET estado='expirada'::kds_estado, updated_at=now()
+     WHERE estado IN ('pendiente'::kds_estado,'en_preparacion'::kds_estado,'listo'::kds_estado)
+     RETURNING 1
+  )
+  SELECT COUNT(*) INTO v_kds_expiradas FROM upd;
+
+  INSERT INTO public.audit_logs (user_id, accion, descripcion, metadata)
+  VALUES (v_user, 'cierre_caja',
+    format('Cierre de caja. Esperado: $%s, Contado: $%s, Diferencia: $%s',
+      v_esperado::text, p_monto_cierre::text, v_diferencia::text),
+    jsonb_build_object(
+      'caja_id', p_caja_id,
+      'monto_cierre', p_monto_cierre,
+      'esperado', v_esperado,
+      'diferencia', v_diferencia,
+      'notas_cierre', v_notas,
+      'sesiones_pendientes_al_cierre', v_sesiones_snapshot,
+      'pendiente_pago_count', v_pendiente_pago_count,
+      'kds_expiradas_count', v_kds_expiradas
+    ));
+
+  RETURN json_build_object(
+    'ok', true,
+    'esperado', v_esperado,
+    'diferencia', v_diferencia,
+    'sesiones_pendientes_count', jsonb_array_length(v_sesiones_snapshot),
+    'kds_expiradas_count', v_kds_expiradas
+  );
+END $function$;
