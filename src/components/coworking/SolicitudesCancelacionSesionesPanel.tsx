@@ -85,7 +85,7 @@ export function SolicitudesCancelacionSesionesPanel({ onSessionCancelled }: Prop
     const [sessionsRes, profilesRes] = await Promise.all([
       supabase
         .from('coworking_sessions')
-        .select('id, cliente_nombre, area_id, pax_count')
+        .select('id, cliente_nombre, area_id, pax_count, estado')
         .in('id', sessionIds),
       supabase.from('profiles').select('id, nombre').in('id', solicitanteIds),
     ]);
