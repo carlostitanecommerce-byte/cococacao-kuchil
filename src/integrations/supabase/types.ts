@@ -313,6 +313,7 @@ export type Database = {
       coworking_reservaciones: {
         Row: {
           area_id: string
+          cliente_id: string | null
           cliente_nombre: string
           created_at: string
           duracion_horas: number
@@ -327,6 +328,7 @@ export type Database = {
         }
         Insert: {
           area_id: string
+          cliente_id?: string | null
           cliente_nombre: string
           created_at?: string
           duracion_horas?: number
@@ -341,6 +343,7 @@ export type Database = {
         }
         Update: {
           area_id?: string
+          cliente_id?: string | null
           cliente_nombre?: string
           created_at?: string
           duracion_horas?: number
@@ -361,11 +364,19 @@ export type Database = {
             referencedRelation: "areas_coworking"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "coworking_reservaciones_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
         ]
       }
       coworking_sessions: {
         Row: {
           area_id: string
+          cliente_id: string | null
           cliente_nombre: string
           created_at: string
           estado: Database["public"]["Enums"]["coworking_estado"]
@@ -383,6 +394,7 @@ export type Database = {
         }
         Insert: {
           area_id: string
+          cliente_id?: string | null
           cliente_nombre: string
           created_at?: string
           estado?: Database["public"]["Enums"]["coworking_estado"]
@@ -400,6 +412,7 @@ export type Database = {
         }
         Update: {
           area_id?: string
+          cliente_id?: string | null
           cliente_nombre?: string
           created_at?: string
           estado?: Database["public"]["Enums"]["coworking_estado"]
@@ -421,6 +434,13 @@ export type Database = {
             columns: ["area_id"]
             isOneToOne: false
             referencedRelation: "areas_coworking"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coworking_sessions_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
             referencedColumns: ["id"]
           },
           {

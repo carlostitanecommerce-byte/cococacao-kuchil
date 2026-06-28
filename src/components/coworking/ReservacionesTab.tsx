@@ -20,6 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import { checkReservationConflict } from './conflictCheck';
 import { ReservationCalendar } from './ReservationCalendar';
 import { QuickCheckInButton } from './QuickCheckInButton';
+import { ClienteSelector } from './ClienteSelector';
 import type { Area, Reservacion } from './types';
 import { todayCDMX } from '@/lib/utils';
 
@@ -40,7 +41,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
   const [selectedReservacionId, setSelectedReservacionId] = useState<string | null>(null);
   const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
 
-  const [clienteNombre, setClienteNombre] = useState('');
+  const [cliente, setCliente] = useState<{ id: string; nombre_completo: string } | null>(null);
   const [areaId, setAreaId] = useState('');
   const [paxCount, setPaxCount] = useState('1');
   const [fechaReserva, setFechaReserva] = useState('');
@@ -61,14 +62,14 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
   }, [activeTab, selectedReservacionId]);
 
   const resetForm = () => {
-    setClienteNombre(''); setAreaId(''); setPaxCount('1');
+    setCliente(null); setAreaId(''); setPaxCount('1');
     setFechaReserva(''); setHoraInicio('09:00'); setDuracion('1');
     setEditingRes(null);
   };
 
   const openEdit = (r: Reservacion) => {
     setEditingRes(r);
-    setClienteNombre(r.cliente_nombre);
+    setCliente(r.cliente_id ? { id: r.cliente_id, nombre_completo: r.cliente_nombre } : null);
     setAreaId(r.area_id);
     setPaxCount(String(r.pax_count));
     setFechaReserva(r.fecha_reserva);
@@ -114,7 +115,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
       await supabase.from('audit_logs').insert({
         user_id: user.id,
         accion: 'reservacion_conflicto',
-        descripcion: `Intento fallido: ${clienteNombre.trim()} en ${fechaReserva} ${horaInicio} — ${conflict.message}`,
+        descripcion: `Intento fallido: ${cliente?.nombre_completo ?? ''} en ${fechaReserva} ${horaInicio} — ${conflict.message}`,
         metadata: { area_id: areaId, fecha_reserva: fechaReserva, hora_inicio: horaInicio },
       });
       setSaving(false);
@@ -123,20 +124,21 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
 
     if (editingRes) {
       const { error } = await supabase.from('coworking_reservaciones').update({
-        cliente_nombre: clienteNombre.trim(),
+        cliente_id: cliente?.id ?? null,
+        cliente_nombre: cliente?.nombre_completo ?? '',
         area_id: areaId,
         pax_count: parseInt(paxCount),
         fecha_reserva: fechaReserva,
         hora_inicio: horaInicio,
         duracion_horas: parseFloat(duracion),
-      }).eq('id', editingRes.id);
+      } as any).eq('id', editingRes.id);
 
       if (error) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
       } else {
         await supabase.from('audit_logs').insert({
           user_id: user.id, accion: 'reagendar_reservacion',
-          descripcion: `Reagendada reservación de ${clienteNombre.trim()}`,
+          descripcion: `Reagendada reservación de ${cliente?.nombre_completo ?? ''}`,
           metadata: { reservacion_id: editingRes.id },
         });
         toast({ title: 'Reservación actualizada' });
@@ -145,7 +147,8 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
       }
     } else {
       const { error } = await supabase.from('coworking_reservaciones').insert({
-        cliente_nombre: clienteNombre.trim(),
+        cliente_id: cliente?.id ?? null,
+        cliente_nombre: cliente?.nombre_completo ?? '',
         area_id: areaId,
         pax_count: parseInt(paxCount),
         fecha_reserva: fechaReserva,
@@ -153,14 +156,14 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
         duracion_horas: parseFloat(duracion),
         usuario_id: user.id,
         estado: 'pendiente',
-      });
+      } as any);
 
       if (error) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
       } else {
         await supabase.from('audit_logs').insert({
           user_id: user.id, accion: 'crear_reservacion',
-          descripcion: `Reservación: ${clienteNombre.trim()} para ${fechaReserva}`,
+          descripcion: `Reservación: ${cliente?.nombre_completo ?? ''} para ${fechaReserva}`,
           metadata: { area_id: areaId, pax_count: parseInt(paxCount) },
         });
         toast({ title: 'Reservación creada' });
@@ -234,7 +237,15 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
               <form onSubmit={handleSubmit} className="space-y-4 mt-2">
                 <div className="space-y-2">
                   <Label>Cliente</Label>
-                  <Input value={clienteNombre} onChange={e => setClienteNombre(e.target.value)} placeholder="Nombre completo" required maxLength={100} />
+                  {editingRes && !cliente && (
+                    <p className="text-xs text-muted-foreground">
+                      Cliente original: <span className="font-medium">{editingRes.cliente_nombre}</span>. Selecciónalo del directorio para vincularlo.
+                    </p>
+                  )}
+                  <ClienteSelector
+                    value={cliente}
+                    onChange={(c) => setCliente(c ? { id: c.id, nombre_completo: c.nombre_completo } : null)}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Área</Label>
@@ -269,7 +280,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
                     <Input type="number" min={0.5} step={0.5} value={duracion} onChange={e => setDuracion(e.target.value)} required />
                   </div>
                 </div>
-                <Button type="submit" className="w-full" disabled={saving || !areaId}>
+                <Button type="submit" className="w-full" disabled={saving || !areaId || !cliente}>
                   {saving ? 'Validando...' : editingRes ? 'Guardar Cambios' : 'Crear Reservación'}
                 </Button>
               </form>

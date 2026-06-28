@@ -13,6 +13,8 @@ import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
 import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
 import { checkWalkInVsReservations } from './conflictCheck';
+import { ClienteSelector } from './ClienteSelector';
+import type { Cliente } from './types';
 
 interface Tarifa {
   id: string;
@@ -49,7 +51,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const { user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [clienteNombre, setClienteNombre] = useState('');
+  const [cliente, setCliente] = useState<{ id: string; nombre_completo: string } | null>(null);
   const [selectedAreaId, setSelectedAreaId] = useState('');
   const [paxCount, setPaxCount] = useState('1');
   const [horas, setHoras] = useState('1');
@@ -191,7 +193,8 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         : null;
 
       const { data: sessionData, error } = await supabase.from('coworking_sessions').insert({
-        cliente_nombre: clienteNombre.trim(),
+        cliente_id: cliente?.id ?? null,
+        cliente_nombre: cliente?.nombre_completo ?? '',
         area_id: selectedAreaId,
         pax_count: pax,
         usuario_id: user.id,
@@ -251,7 +254,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         const kdsRes = await enviarASesionKDS({
           context: {
             sessionId: sessionData.id,
-            clienteNombre: clienteNombre.trim(),
+            clienteNombre: cliente?.nombre_completo ?? '',
             motivo: 'checkin',
           },
           items: kitchenItems,
@@ -264,7 +267,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
 
       await supabase.from('audit_logs').insert({
         user_id: user.id, accion: 'checkin_coworking',
-        descripcion: `Check-in: ${clienteNombre.trim()} (${pax} pax)${kdsFolio ? ` · KDS #${String(kdsFolio).padStart(4, '0')}` : ''}`,
+        descripcion: `Check-in: ${cliente?.nombre_completo ?? ''} (${pax} pax)${kdsFolio ? ` · KDS #${String(kdsFolio).padStart(4, '0')}` : ''}`,
         metadata: {
           area_id: selectedAreaId,
           pax_count: pax,
@@ -286,7 +289,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         title: 'Entrada registrada exitosamente',
         description: kdsFolio ? `Comanda enviada a cocina (#${String(kdsFolio).padStart(4, '0')})` : undefined,
       });
-      setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
+      setCliente(null); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
       setSelectedTarifaId('');
       setAmenityOptions([]);
 
@@ -311,8 +314,11 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         <DialogHeader><DialogTitle>Registrar Entrada (Check-in)</DialogTitle></DialogHeader>
         <form onSubmit={handleCheckIn} className="space-y-4 mt-2">
           <div className="space-y-2">
-            <Label htmlFor="cliente">Nombre del Cliente</Label>
-            <Input id="cliente" value={clienteNombre} onChange={e => setClienteNombre(e.target.value)} placeholder="Nombre completo" required maxLength={100} />
+            <Label htmlFor="cliente">Cliente</Label>
+            <ClienteSelector
+              value={cliente}
+              onChange={(c) => setCliente(c ? { id: c.id, nombre_completo: c.nombre_completo } : null)}
+            />
           </div>
           <div className="space-y-2">
             <Label>Área</Label>
@@ -403,7 +409,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
               <Input id="horas" type="number" min={0.5} step={0.5} value={horas} onChange={e => setHoras(e.target.value)} required />
             </div>
           </div>
-          <Button type="submit" className="w-full" disabled={creating || !selectedAreaId}>
+          <Button type="submit" className="w-full" disabled={creating || !selectedAreaId || !cliente}>
             {creating ? 'Registrando...' : 'Confirmar Entrada'}
           </Button>
         </form>

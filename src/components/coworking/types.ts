@@ -28,6 +28,7 @@ export interface TarifaSnapshot {
 
 export interface CoworkingSession {
   id: string;
+  cliente_id?: string | null;
   cliente_nombre: string;
   area_id: string;
   pax_count: number;
@@ -45,6 +46,7 @@ export interface CoworkingSession {
 
 export interface Reservacion {
   id: string;
+  cliente_id?: string | null;
   cliente_nombre: string;
   area_id: string;
   pax_count: number;
