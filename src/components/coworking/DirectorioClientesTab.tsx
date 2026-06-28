@@ -28,8 +28,26 @@ interface ClienteRow extends Cliente {
 
 const clienteSchema = z.object({
   nombre_completo: z.string().trim().min(1, 'El nombre es obligatorio').max(120, 'Máximo 120 caracteres'),
-  telefono: z.string().trim().max(30, 'Máximo 30 caracteres').optional().or(z.literal('')),
-  email: z.string().trim().max(255, 'Máximo 255 caracteres').email('Email inválido').optional().or(z.literal('')),
+  telefono: z
+    .string()
+    .trim()
+    .max(20, 'Máximo 20 caracteres')
+    .optional()
+    .or(z.literal(''))
+    .refine(
+      (v) => !v || v.replace(/\D/g, '').length === 10,
+      'El teléfono debe tener 10 dígitos',
+    ),
+  email: z
+    .string()
+    .trim()
+    .max(255, 'Máximo 255 caracteres')
+    .optional()
+    .or(z.literal(''))
+    .refine(
+      (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+      'El email debe incluir una @ válida',
+    ),
 });
 
 const PAGE_SIZE_DEFAULT = 20;
@@ -293,8 +311,10 @@ export function DirectorioClientesTab() {
                 value={form.telefono}
                 onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
                 inputMode="tel"
-                maxLength={30}
+                maxLength={20}
+                placeholder="10 dígitos"
               />
+              <p className="text-xs text-muted-foreground">Debe tener 10 dígitos.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="dir-email">Email</Label>
@@ -304,7 +324,9 @@ export function DirectorioClientesTab() {
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 maxLength={255}
+                placeholder="nombre@dominio.com"
               />
+              <p className="text-xs text-muted-foreground">Debe incluir una @ válida.</p>
             </div>
           </div>
           <DialogFooter>

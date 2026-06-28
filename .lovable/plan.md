@@ -1,40 +1,29 @@
 ## Objetivo
 
-Crear `src/components/coworking/DirectorioClientesTab.tsx`: pestaña CRUD para administrar el directorio de clientes (listar, buscar, crear, editar, eliminar) e integrarla como nueva pestaña "Directorio" en `CoworkingPage`.
+Reforzar la validación de los campos `telefono` y `email` en el diálogo "Nuevo cliente" / "Editar cliente" del `DirectorioClientesTab`.
 
-## UI
+## Cambios
 
-- **Encabezado**: título "Directorio de clientes" + buscador (`Input` con ícono) + botón "Nuevo cliente".
-- **Tabla** (`@/components/ui/table`): columnas `Nombre`, `Teléfono`, `Email`, `Creado`, `Acciones` (editar / eliminar).
-- **Estado vacío**: mensaje "Sin clientes registrados" o "Sin resultados para '{query}'".
-- **Paginación**: cliente-side simple usando `data-pagination` (20 por página) ya que el catálogo será pequeño/medio.
-- **Realtime**: suscripción a `clientes` para refrescar la lista al vuelo.
+En `src/components/coworking/DirectorioClientesTab.tsx`:
 
-## Diálogos
+1. **Schema `zod`**:
+   - `telefono`: opcional; si se llena, debe ser exactamente 10 dígitos. Se acepta entrada con espacios/guiones (`(55) 1234-5678`) pero al validar se eliminan caracteres no numéricos y se exige `length === 10`. El valor guardado en BD será el string original tal cual lo tecleó el usuario.
+   - `email`: opcional; si se llena, debe contener `@` y un dominio con punto (regex simple `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`), además del límite de 255 chars actual.
+   - Mensajes de error específicos en español: "El teléfono debe tener 10 dígitos", "El email debe incluir una @ válida".
 
-- **Crear / Editar**: un solo `Dialog` con campos `nombre_completo` (obligatorio), `telefono`, `email`. Validación con `zod` (nombre 1–120 chars, email opcional pero válido si se llena, teléfono opcional máx 30 chars).
-- **Eliminar**: `AlertDialog` con confirmación. Antes de borrar, verifica si el cliente tiene sesiones de coworking asociadas (hoy `coworking_sessions` solo guarda `cliente_nombre` como texto, sin FK, así que el borrado es seguro a nivel de integridad). Si en el futuro se añade FK, este check se ampliará.
+2. **UX en el input de teléfono**:
+   - `maxLength={15}` para permitir formato con separadores.
+   - `inputMode="tel"`.
+   - Hint visual debajo del campo: "10 dígitos".
 
-## Datos
+3. **UX en el input de email**:
+   - `type="email"` (ya estaba).
+   - Hint visual: "Debe incluir @".
 
-- Fetch: `supabase.from('clientes').select('*').order('nombre_completo')`.
-- Búsqueda: filtro local sobre el resultado (los volúmenes esperados son bajos); si hay >500 registros, se cambia a `ilike` server-side.
-- Mutaciones: `insert`, `update`, `delete` directos; toasts con sonner para feedback y manejo de errores.
-
-## Integración en `CoworkingPage`
-
-- Agregar `<TabsTrigger value="directorio">Directorio</TabsTrigger>` (visible para todos los roles operativos; sin restricción adicional).
-- Agregar `<TabsContent value="directorio"><DirectorioClientesTab /></TabsContent>`.
+4. **Feedback de errores**:
+   - Mantener el `toast.error` actual con el primer mensaje del schema (suficiente, no es un formulario complejo).
 
 ## Fuera de alcance
 
-- No se modifica la tabla `clientes` ni sus políticas RLS.
-- No se vinculan sesiones existentes ni se hace migración de `cliente_nombre` (texto) hacia `cliente_id` (FK) — eso será una fase posterior.
-- No se exporta a Excel ni se importa en lote.
-
-## Detalles técnicos
-
-- Componentes shadcn: `Table`, `Dialog`, `AlertDialog`, `Input`, `Label`, `Button`, `DataPagination`.
-- Iconos: `Users`, `Pencil`, `Trash2`, `Plus`, `Search` de `lucide-react`.
-- Tipo `Cliente` ya disponible en `src/components/coworking/types.ts`.
-- Patrón de realtime: igual al usado en `useCoworkingData` (canal único, cleanup en unmount).
+- No se cambia la forma en que se guardan los datos (sigue siendo el string tal cual, o `null` si está vacío).
+- No se modifica el `ClienteSelector` (diálogo de creación inline) en esta iteración; si lo quieres también, lo agrego después.
