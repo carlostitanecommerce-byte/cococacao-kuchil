@@ -193,7 +193,8 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         : null;
 
       const { data: sessionData, error } = await supabase.from('coworking_sessions').insert({
-        cliente_nombre: clienteNombre.trim(),
+        cliente_id: cliente?.id ?? null,
+        cliente_nombre: cliente?.nombre_completo ?? '',
         area_id: selectedAreaId,
         pax_count: pax,
         usuario_id: user.id,
