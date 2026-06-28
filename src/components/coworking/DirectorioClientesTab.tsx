@@ -28,8 +28,26 @@ interface ClienteRow extends Cliente {
 
 const clienteSchema = z.object({
   nombre_completo: z.string().trim().min(1, 'El nombre es obligatorio').max(120, 'Máximo 120 caracteres'),
-  telefono: z.string().trim().max(30, 'Máximo 30 caracteres').optional().or(z.literal('')),
-  email: z.string().trim().max(255, 'Máximo 255 caracteres').email('Email inválido').optional().or(z.literal('')),
+  telefono: z
+    .string()
+    .trim()
+    .max(20, 'Máximo 20 caracteres')
+    .optional()
+    .or(z.literal(''))
+    .refine(
+      (v) => !v || v.replace(/\D/g, '').length === 10,
+      'El teléfono debe tener 10 dígitos',
+    ),
+  email: z
+    .string()
+    .trim()
+    .max(255, 'Máximo 255 caracteres')
+    .optional()
+    .or(z.literal(''))
+    .refine(
+      (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+      'El email debe incluir una @ válida',
+    ),
 });
 
 const PAGE_SIZE_DEFAULT = 20;
