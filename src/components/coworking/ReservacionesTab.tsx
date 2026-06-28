@@ -115,7 +115,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
       await supabase.from('audit_logs').insert({
         user_id: user.id,
         accion: 'reservacion_conflicto',
-        descripcion: `Intento fallido: ${clienteNombre.trim()} en ${fechaReserva} ${horaInicio} — ${conflict.message}`,
+        descripcion: `Intento fallido: ${cliente?.nombre_completo ?? ''} en ${fechaReserva} ${horaInicio} — ${conflict.message}`,
         metadata: { area_id: areaId, fecha_reserva: fechaReserva, hora_inicio: horaInicio },
       });
       setSaving(false);
@@ -124,20 +124,21 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
 
     if (editingRes) {
       const { error } = await supabase.from('coworking_reservaciones').update({
-        cliente_nombre: clienteNombre.trim(),
+        cliente_id: cliente?.id ?? null,
+        cliente_nombre: cliente?.nombre_completo ?? '',
         area_id: areaId,
         pax_count: parseInt(paxCount),
         fecha_reserva: fechaReserva,
         hora_inicio: horaInicio,
         duracion_horas: parseFloat(duracion),
-      }).eq('id', editingRes.id);
+      } as any).eq('id', editingRes.id);
 
       if (error) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
       } else {
         await supabase.from('audit_logs').insert({
           user_id: user.id, accion: 'reagendar_reservacion',
-          descripcion: `Reagendada reservación de ${clienteNombre.trim()}`,
+          descripcion: `Reagendada reservación de ${cliente?.nombre_completo ?? ''}`,
           metadata: { reservacion_id: editingRes.id },
         });
         toast({ title: 'Reservación actualizada' });
@@ -146,7 +147,8 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
       }
     } else {
       const { error } = await supabase.from('coworking_reservaciones').insert({
-        cliente_nombre: clienteNombre.trim(),
+        cliente_id: cliente?.id ?? null,
+        cliente_nombre: cliente?.nombre_completo ?? '',
         area_id: areaId,
         pax_count: parseInt(paxCount),
         fecha_reserva: fechaReserva,
@@ -154,14 +156,14 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
         duracion_horas: parseFloat(duracion),
         usuario_id: user.id,
         estado: 'pendiente',
-      });
+      } as any);
 
       if (error) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
       } else {
         await supabase.from('audit_logs').insert({
           user_id: user.id, accion: 'crear_reservacion',
-          descripcion: `Reservación: ${clienteNombre.trim()} para ${fechaReserva}`,
+          descripcion: `Reservación: ${cliente?.nombre_completo ?? ''} para ${fechaReserva}`,
           metadata: { area_id: areaId, pax_count: parseInt(paxCount) },
         });
         toast({ title: 'Reservación creada' });
