@@ -1,3 +1,10 @@
+export interface Cliente {
+  id: string;
+  nombre_completo: string;
+  email: string | null;
+  telefono: string | null;
+}
+
 export interface Area {
   id: string;
   nombre_area: string;
