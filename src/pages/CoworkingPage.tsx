@@ -159,6 +159,7 @@ const CoworkingPage = () => {
         <TabsList>
           <TabsTrigger value="ocupacion">Ocupación</TabsTrigger>
           <TabsTrigger value="reservaciones">Reservaciones</TabsTrigger>
+          <TabsTrigger value="directorio">Directorio</TabsTrigger>
           {isAdmin && <TabsTrigger value="configuracion">Configuración</TabsTrigger>}
         </TabsList>
 
