@@ -38,6 +38,7 @@ interface Solicitud {
   cliente_nombre?: string;
   area_nombre?: string;
   pax_count?: number;
+  sesion_estado?: string;
 }
 
 interface Props {
