@@ -1,70 +1,42 @@
-## Problema
+## Objetivo
 
-La RPC `cancelar_sesion_coworking` exige que la sesión esté en `activo` o `pendiente_pago`. Pero cuando llega el momento de aprobar una solicitud, la sesión ya puede estar en `cancelado` por dos razones legítimas:
+Crear `src/components/coworking/ClienteSelector.tsx`: un selector tipo combobox con búsqueda en vivo sobre la tabla `clientes`, con opción inline de crear un cliente nuevo cuando no existe.
 
-1. El admin canceló la sesión **directamente** (sin aprobar la solicitud), dejando la solicitud huérfana en `pendiente`.
-2. Existían **varias solicitudes** sobre la misma sesión (caso real en BD: Jonathan Contreras con 2 solicitudes), y al aprobar la primera la segunda queda imposible de procesar.
+## Comportamiento
 
-Hoy hay 4 solicitudes `pendiente` apuntando a sesiones ya `cancelado` que bloquean el panel del admin.
+- **Trigger**: Botón estilo input (shadcn `Button` variant outline) que muestra el cliente seleccionado o un placeholder ("Buscar o crear cliente...").
+- **Popover + Command**: Al abrir, muestra un `CommandInput` para teclear el nombre.
+- **Búsqueda en BD**: Consulta `clientes` filtrando `nombre_completo ILIKE %query%`, ordenado por nombre, limitado a 20 resultados. Debounce de ~250 ms para no saturar la red.
+- **Resultados**: Lista con nombre + (si existe) teléfono/email como subtítulo. Al hacer click llama `onChange({ id, nombre_completo })` y cierra el popover.
+- **Sin resultados**: Muestra `CommandEmpty` con botón "Crear nuevo cliente: '{query}'" — abre un mini diálogo con campos `nombre_completo` (precargado con el texto), `telefono` y `email` opcionales. Al guardar inserta en `clientes`, devuelve el registro creado, lo selecciona automáticamente y cierra todo.
+- **Limpiar selección**: Ícono `X` dentro del trigger cuando hay valor.
+- **Realtime**: Suscripción a INSERT/UPDATE/DELETE de `clientes` para refrescar la lista si está abierta (patrón ya usado en `useCoworkingData`).
 
-## Plan
+## API del componente
 
-### 1. Backend — RPC `cancelar_sesion_coworking` (migración)
-
-Hacer la función tolerante a sesiones ya canceladas cuando viene `p_solicitud_id`:
-
-- Si `v_session.estado = 'cancelado'` **y** hay `p_solicitud_id`:
-  - **No** tocar inventario, **no** borrar `detalle_ventas`, **no** crear mermas (ya se hizo en la cancelación original).
-  - Marcar la solicitud como `aprobada` con `revisado_por = auth.uid()` y nota interna "Sesión ya cancelada previamente".
-  - Insertar `audit_log` con acción `cerrar_solicitud_obsoleta` describiendo el caso.
-  - Retornar `{ ok: true, ya_cancelada: true, mermas_creadas: 0, entregados_count: 0 }`.
-- Si estado es otro (no `activo`/`pendiente_pago`/`cancelado`) seguir lanzando la excepción actual.
-- Mantener el flujo normal intacto para sesiones `activo`/`pendiente_pago`.
-
-### 2. Backend — Auto-cierre de solicitudes huérfanas (misma migración)
-
-Cuando una sesión pasa a `cancelado` por la vía directa, cerrar automáticamente cualquier solicitud `pendiente` para esa sesión:
-
-- Al final del flujo normal de cancelación dentro de la misma RPC (cuando `p_solicitud_id IS NULL`), hacer:
-  ```sql
-  UPDATE solicitudes_cancelacion_sesiones
-     SET estado = 'aprobada', revisado_por = v_user_id,
-         motivo_rechazo = 'Auto-cerrada: sesión cancelada directamente por admin'
-   WHERE session_id = p_session_id AND estado = 'pendiente';
-  ```
-- Registrar el conteo en el `audit_log` (`solicitudes_auto_cerradas`).
-
-### 3. Backfill — limpiar las 4 solicitudes huérfanas actuales
-
-En la misma migración:
-```sql
-UPDATE solicitudes_cancelacion_sesiones s
-   SET estado = 'aprobada',
-       motivo_rechazo = 'Cierre retroactivo: sesión ya estaba cancelada'
-  FROM coworking_sessions c
- WHERE s.session_id = c.id
-   AND s.estado = 'pendiente'
-   AND c.estado = 'cancelado';
+```ts
+interface ClienteSelectorProps {
+  value: { id: string; nombre_completo: string } | null;
+  onChange: (cliente: Cliente | null) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  autoFocus?: boolean;
+}
 ```
 
-### 4. Frontend — `SolicitudesCancelacionSesionesPanel.tsx`
-
-Al abrir el diálogo de aprobación, detectar `session.estado === 'cancelado'` (ya se carga al traer upsells):
-
-- Cambiar el título a **"Cerrar solicitud obsoleta"**.
-- Mostrar aviso: *"La sesión ya fue cancelada previamente. Aprobar esta solicitud solo cerrará el registro sin afectar inventario."*
-- Ocultar la sección de entregas/upsells (no aplica).
-- Cambiar el CTA a **"Cerrar solicitud"** y enviar `entregados: []` a la misma RPC, que ahora reconoce el caso.
-- Mantener el botón de **Rechazar** como alternativa.
-
-### 5. Validación
-
-- Tras la migración, el panel del admin debe poder cerrar las 4 solicitudes existentes sin error.
-- Crear una nueva sesión, generar solicitud desde recepción, cancelar la sesión directo como admin → la solicitud debe desaparecer del panel automáticamente.
-- Flujo estándar (sesión activa → aprobar solicitud) debe seguir funcionando idéntico, generando mermas según entregas.
+Reutiliza la interfaz `Cliente` ya añadida en `src/components/coworking/types.ts`.
 
 ## Detalles técnicos
 
-- Archivos a tocar: nueva migración SQL + `src/components/coworking/SolicitudesCancelacionSesionesPanel.tsx`.
-- `CancelSessionDialog.tsx` y `cancelarSesionAtomico` no requieren cambios de contrato (mismo payload).
-- Sin cambios en RLS ni en grants.
+- Stack UI: `Popover`, `Command`, `CommandInput`, `CommandList`, `CommandEmpty`, `CommandGroup`, `CommandItem`, `Dialog`, `Input`, `Button` (todos ya presentes en `src/components/ui`).
+- Estado interno: `open`, `query`, `results`, `loading`, `createOpen`, `creating`, form state del diálogo de creación.
+- Debounce con `setTimeout` + cleanup en `useEffect([query])`; cancelación de fetches obsoletos con bandera local.
+- Errores de red/inserción: `toast` (sonner) con mensaje legible; el componente no se rompe si falla la consulta.
+- Inserción de cliente: `supabase.from('clientes').insert({ nombre_completo, email, telefono }).select().single()`. Se asume que las políticas RLS actuales permiten a roles operativos crear/leer (a validar antes de implementar; si no, se añade migración en una fase posterior).
+- Sin acoplamiento a coworking: el componente vive en `coworking/` pero no depende de sesiones/áreas, por si se reutiliza luego en POS/Caja.
+
+## Fuera de alcance
+
+- No integra el selector en ningún diálogo existente (CheckIn, Reservaciones, etc.) — eso será una fase posterior.
+- No edita ni elimina clientes existentes.
+- No cambia el esquema de la tabla `clientes` ni sus políticas (se revisarán al integrarlo).
