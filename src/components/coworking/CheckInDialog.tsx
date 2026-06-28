@@ -314,8 +314,11 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         <DialogHeader><DialogTitle>Registrar Entrada (Check-in)</DialogTitle></DialogHeader>
         <form onSubmit={handleCheckIn} className="space-y-4 mt-2">
           <div className="space-y-2">
-            <Label htmlFor="cliente">Nombre del Cliente</Label>
-            <Input id="cliente" value={clienteNombre} onChange={e => setClienteNombre(e.target.value)} placeholder="Nombre completo" required maxLength={100} />
+            <Label htmlFor="cliente">Cliente</Label>
+            <ClienteSelector
+              value={cliente}
+              onChange={(c) => setCliente(c ? { id: c.id, nombre_completo: c.nombre_completo } : null)}
+            />
           </div>
           <div className="space-y-2">
             <Label>Área</Label>
