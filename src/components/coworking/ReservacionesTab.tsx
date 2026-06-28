@@ -280,7 +280,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
                     <Input type="number" min={0.5} step={0.5} value={duracion} onChange={e => setDuracion(e.target.value)} required />
                   </div>
                 </div>
-                <Button type="submit" className="w-full" disabled={saving || !areaId}>
+                <Button type="submit" className="w-full" disabled={saving || !areaId || !cliente}>
                   {saving ? 'Validando...' : editingRes ? 'Guardar Cambios' : 'Crear Reservación'}
                 </Button>
               </form>
