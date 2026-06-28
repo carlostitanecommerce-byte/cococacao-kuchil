@@ -139,6 +139,12 @@ export function SolicitudesCancelacionSesionesPanel({ onSessionCancelled }: Prop
 
   const openApproval = async (solicitud: Solicitud) => {
     setApproving(solicitud);
+    setApprovalUpsells([]);
+    setApprovalEntregas({});
+    if (solicitud.sesion_estado === 'cancelado') {
+      // Sesión ya cancelada — no se requiere auditoría de entregas
+      return;
+    }
     setLoadingApproval(true);
     const rows = await fetchSessionUpsellsForCancel(solicitud.session_id);
     setApprovalUpsells(rows);
