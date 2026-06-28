@@ -17,8 +17,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { DataPagination } from '@/components/ui/data-pagination';
 import { Loader2, Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
-import { formatDateCDMX } from '@/lib/utils';
 import type { Cliente } from './types';
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 
 interface ClienteRow extends Cliente {
   created_at: string;
