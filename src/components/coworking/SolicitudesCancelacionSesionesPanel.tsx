@@ -113,6 +113,7 @@ export function SolicitudesCancelacionSesionesPanel({ onSessionCancelled }: Prop
           cliente_nombre: session?.cliente_nombre ?? 'Desconocido',
           area_nombre: session ? areaMap.get(session.area_id) ?? 'Desconocida' : 'Desconocida',
           pax_count: session?.pax_count ?? 0,
+          sesion_estado: session?.estado,
         };
       }),
     );
