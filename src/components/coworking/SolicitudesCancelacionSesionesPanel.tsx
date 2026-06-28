@@ -316,123 +316,136 @@ export function SolicitudesCancelacionSesionesPanel({ onSessionCancelled }: Prop
       {/* Diálogo de aprobación con auditoría de entregas */}
       <Dialog open={!!approving} onOpenChange={open => { if (!open && !processing) closeApproval(); }}>
         <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-primary" />
-              Aprobar cancelación
-            </DialogTitle>
-            <DialogDescription className="text-left">
-              Confirma qué se entregó al cliente antes de aprobar.
-              Lo marcado se descontará del inventario como merma.
-              {approving && (
-                <span className="block mt-2 text-foreground/80">
-                  Cliente: <span className="font-medium">{approving.cliente_nombre}</span> ·
-                  Solicitó: <span className="font-medium">{approving.solicitante_nombre}</span>
-                </span>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            {loadingApproval ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Cargando...</p>
-            ) : approvalUpsells.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
-                Esta sesión no tiene amenities ni productos asociados.
-              </p>
-            ) : (
+          {(() => {
+            const yaCancelada = approving?.sesion_estado === 'cancelado';
+            return (
               <>
-                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  Pre-marcado según lo que <span className="font-medium text-foreground">declaró el operador</span>.
-                  Ajusta si tienes información distinta.
-                </div>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-primary" />
+                    {yaCancelada ? 'Cerrar solicitud obsoleta' : 'Aprobar cancelación'}
+                  </DialogTitle>
+                  <DialogDescription className="text-left">
+                    {yaCancelada
+                      ? 'La sesión ya fue cancelada previamente. Aprobar esta solicitud solo cerrará el registro sin afectar inventario.'
+                      : 'Confirma qué se entregó al cliente antes de aprobar. Lo marcado se descontará del inventario como merma.'}
+                    {approving && (
+                      <span className="block mt-2 text-foreground/80">
+                        Cliente: <span className="font-medium">{approving.cliente_nombre}</span> ·
+                        Solicitó: <span className="font-medium">{approving.solicitante_nombre}</span>
+                      </span>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
 
-                <div className="space-y-2">
-                  {approvalUpsells.map(u => {
-                    const st = approvalEntregas[u.id] ?? { entregado: false, cantidad: u.cantidad };
-                    return (
-                      <div
-                        key={u.id}
-                        className="flex items-center gap-3 rounded-md border border-border/60 bg-background p-3"
-                      >
-                        <div className="shrink-0">
-                          {u.isAmenity ? (
-                            <Gift className="h-4 w-4 text-primary" />
-                          ) : (
-                            <Sparkles className="h-4 w-4 text-accent-foreground" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-sm truncate">{u.nombre}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {u.isAmenity ? 'Amenity' : `$${u.precio_especial.toFixed(2)}`} · solicitado ×{u.cantidad}
-                            </span>
-                          </div>
-                          {st.entregado && (
-                            <div className="flex items-center gap-2 mt-2">
-                              <Label htmlFor={`appqty-${u.id}`} className="text-xs text-muted-foreground">
-                                Cantidad entregada:
-                              </Label>
-                              <Input
-                                id={`appqty-${u.id}`}
-                                type="number"
-                                min={1}
-                                max={u.cantidad}
-                                value={st.cantidad}
-                                onChange={e =>
+                <div className="space-y-3 py-2">
+                  {yaCancelada ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
+                      Esta sesión ya está en estado cancelado. No se modificará el inventario ni los registros de venta.
+                    </p>
+                  ) : loadingApproval ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Cargando...</p>
+                  ) : approvalUpsells.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
+                      Esta sesión no tiene amenities ni productos asociados.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                        Pre-marcado según lo que <span className="font-medium text-foreground">declaró el operador</span>.
+                        Ajusta si tienes información distinta.
+                      </div>
+
+                      <div className="space-y-2">
+                        {approvalUpsells.map(u => {
+                          const st = approvalEntregas[u.id] ?? { entregado: false, cantidad: u.cantidad };
+                          return (
+                            <div
+                              key={u.id}
+                              className="flex items-center gap-3 rounded-md border border-border/60 bg-background p-3"
+                            >
+                              <div className="shrink-0">
+                                {u.isAmenity ? (
+                                  <Gift className="h-4 w-4 text-primary" />
+                                ) : (
+                                  <Sparkles className="h-4 w-4 text-accent-foreground" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-sm truncate">{u.nombre}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {u.isAmenity ? 'Amenity' : `$${u.precio_especial.toFixed(2)}`} · solicitado ×{u.cantidad}
+                                  </span>
+                                </div>
+                                {st.entregado && (
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <Label htmlFor={`appqty-${u.id}`} className="text-xs text-muted-foreground">
+                                      Cantidad entregada:
+                                    </Label>
+                                    <Input
+                                      id={`appqty-${u.id}`}
+                                      type="number"
+                                      min={1}
+                                      max={u.cantidad}
+                                      value={st.cantidad}
+                                      onChange={e =>
+                                        setApprovalEntregas(prev => ({
+                                          ...prev,
+                                          [u.id]: {
+                                            ...prev[u.id],
+                                            cantidad: Math.max(1, Math.min(u.cantidad, parseInt(e.target.value, 10) || 1)),
+                                          },
+                                        }))
+                                      }
+                                      className="h-7 w-20 text-xs"
+                                    />
+                                    <span className="text-xs text-muted-foreground">/ {u.cantidad}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <Switch
+                                checked={st.entregado}
+                                onCheckedChange={checked =>
                                   setApprovalEntregas(prev => ({
                                     ...prev,
                                     [u.id]: {
-                                      ...prev[u.id],
-                                      cantidad: Math.max(1, Math.min(u.cantidad, parseInt(e.target.value, 10) || 1)),
+                                      entregado: checked,
+                                      cantidad: prev[u.id]?.cantidad ?? u.cantidad,
                                     },
                                   }))
                                 }
-                                className="h-7 w-20 text-xs"
                               />
-                              <span className="text-xs text-muted-foreground">/ {u.cantidad}</span>
                             </div>
-                          )}
-                        </div>
-                        <Switch
-                          checked={st.entregado}
-                          onCheckedChange={checked =>
-                            setApprovalEntregas(prev => ({
-                              ...prev,
-                              [u.id]: {
-                                entregado: checked,
-                                cantidad: prev[u.id]?.cantidad ?? u.cantidad,
-                              },
-                            }))
-                          }
-                        />
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+                        <Package className="h-3.5 w-3.5" />
+                        <span>
+                          {totalApprovalEntregados} de {approvalUpsells.length} marcados como entregados
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-                  <Package className="h-3.5 w-3.5" />
-                  <span>
-                    {totalApprovalEntregados} de {approvalUpsells.length} marcados como entregados
-                  </span>
-                </div>
+                <DialogFooter className="gap-2">
+                  <Button variant="outline" onClick={closeApproval} disabled={processing}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleConfirmApproval} disabled={processing || (!yaCancelada && loadingApproval)}>
+                    {processing && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                    {yaCancelada ? 'Cerrar solicitud' : 'Aprobar y cancelar sesión'}
+                  </Button>
+                </DialogFooter>
               </>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={closeApproval} disabled={processing}>
-              Cancelar
-            </Button>
-            <Button onClick={handleConfirmApproval} disabled={processing || loadingApproval}>
-              {processing && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-              Aprobar y cancelar sesión
-            </Button>
-          </DialogFooter>
+            );
+          })()}
         </DialogContent>
       </Dialog>
+
 
       {/* Diálogo de rechazo */}
       <Dialog
