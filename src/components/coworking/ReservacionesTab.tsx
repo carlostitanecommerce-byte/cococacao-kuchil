@@ -41,7 +41,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
   const [selectedReservacionId, setSelectedReservacionId] = useState<string | null>(null);
   const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
 
-  const [clienteNombre, setClienteNombre] = useState('');
+  const [cliente, setCliente] = useState<{ id: string; nombre_completo: string } | null>(null);
   const [areaId, setAreaId] = useState('');
   const [paxCount, setPaxCount] = useState('1');
   const [fechaReserva, setFechaReserva] = useState('');
