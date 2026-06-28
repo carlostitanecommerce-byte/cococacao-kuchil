@@ -1,42 +1,40 @@
 ## Objetivo
 
-Crear `src/components/coworking/ClienteSelector.tsx`: un selector tipo combobox con búsqueda en vivo sobre la tabla `clientes`, con opción inline de crear un cliente nuevo cuando no existe.
+Crear `src/components/coworking/DirectorioClientesTab.tsx`: pestaña CRUD para administrar el directorio de clientes (listar, buscar, crear, editar, eliminar) e integrarla como nueva pestaña "Directorio" en `CoworkingPage`.
 
-## Comportamiento
+## UI
 
-- **Trigger**: Botón estilo input (shadcn `Button` variant outline) que muestra el cliente seleccionado o un placeholder ("Buscar o crear cliente...").
-- **Popover + Command**: Al abrir, muestra un `CommandInput` para teclear el nombre.
-- **Búsqueda en BD**: Consulta `clientes` filtrando `nombre_completo ILIKE %query%`, ordenado por nombre, limitado a 20 resultados. Debounce de ~250 ms para no saturar la red.
-- **Resultados**: Lista con nombre + (si existe) teléfono/email como subtítulo. Al hacer click llama `onChange({ id, nombre_completo })` y cierra el popover.
-- **Sin resultados**: Muestra `CommandEmpty` con botón "Crear nuevo cliente: '{query}'" — abre un mini diálogo con campos `nombre_completo` (precargado con el texto), `telefono` y `email` opcionales. Al guardar inserta en `clientes`, devuelve el registro creado, lo selecciona automáticamente y cierra todo.
-- **Limpiar selección**: Ícono `X` dentro del trigger cuando hay valor.
-- **Realtime**: Suscripción a INSERT/UPDATE/DELETE de `clientes` para refrescar la lista si está abierta (patrón ya usado en `useCoworkingData`).
+- **Encabezado**: título "Directorio de clientes" + buscador (`Input` con ícono) + botón "Nuevo cliente".
+- **Tabla** (`@/components/ui/table`): columnas `Nombre`, `Teléfono`, `Email`, `Creado`, `Acciones` (editar / eliminar).
+- **Estado vacío**: mensaje "Sin clientes registrados" o "Sin resultados para '{query}'".
+- **Paginación**: cliente-side simple usando `data-pagination` (20 por página) ya que el catálogo será pequeño/medio.
+- **Realtime**: suscripción a `clientes` para refrescar la lista al vuelo.
 
-## API del componente
+## Diálogos
 
-```ts
-interface ClienteSelectorProps {
-  value: { id: string; nombre_completo: string } | null;
-  onChange: (cliente: Cliente | null) => void;
-  disabled?: boolean;
-  placeholder?: string;
-  autoFocus?: boolean;
-}
-```
+- **Crear / Editar**: un solo `Dialog` con campos `nombre_completo` (obligatorio), `telefono`, `email`. Validación con `zod` (nombre 1–120 chars, email opcional pero válido si se llena, teléfono opcional máx 30 chars).
+- **Eliminar**: `AlertDialog` con confirmación. Antes de borrar, verifica si el cliente tiene sesiones de coworking asociadas (hoy `coworking_sessions` solo guarda `cliente_nombre` como texto, sin FK, así que el borrado es seguro a nivel de integridad). Si en el futuro se añade FK, este check se ampliará.
 
-Reutiliza la interfaz `Cliente` ya añadida en `src/components/coworking/types.ts`.
+## Datos
 
-## Detalles técnicos
+- Fetch: `supabase.from('clientes').select('*').order('nombre_completo')`.
+- Búsqueda: filtro local sobre el resultado (los volúmenes esperados son bajos); si hay >500 registros, se cambia a `ilike` server-side.
+- Mutaciones: `insert`, `update`, `delete` directos; toasts con sonner para feedback y manejo de errores.
 
-- Stack UI: `Popover`, `Command`, `CommandInput`, `CommandList`, `CommandEmpty`, `CommandGroup`, `CommandItem`, `Dialog`, `Input`, `Button` (todos ya presentes en `src/components/ui`).
-- Estado interno: `open`, `query`, `results`, `loading`, `createOpen`, `creating`, form state del diálogo de creación.
-- Debounce con `setTimeout` + cleanup en `useEffect([query])`; cancelación de fetches obsoletos con bandera local.
-- Errores de red/inserción: `toast` (sonner) con mensaje legible; el componente no se rompe si falla la consulta.
-- Inserción de cliente: `supabase.from('clientes').insert({ nombre_completo, email, telefono }).select().single()`. Se asume que las políticas RLS actuales permiten a roles operativos crear/leer (a validar antes de implementar; si no, se añade migración en una fase posterior).
-- Sin acoplamiento a coworking: el componente vive en `coworking/` pero no depende de sesiones/áreas, por si se reutiliza luego en POS/Caja.
+## Integración en `CoworkingPage`
+
+- Agregar `<TabsTrigger value="directorio">Directorio</TabsTrigger>` (visible para todos los roles operativos; sin restricción adicional).
+- Agregar `<TabsContent value="directorio"><DirectorioClientesTab /></TabsContent>`.
 
 ## Fuera de alcance
 
-- No integra el selector en ningún diálogo existente (CheckIn, Reservaciones, etc.) — eso será una fase posterior.
-- No edita ni elimina clientes existentes.
-- No cambia el esquema de la tabla `clientes` ni sus políticas (se revisarán al integrarlo).
+- No se modifica la tabla `clientes` ni sus políticas RLS.
+- No se vinculan sesiones existentes ni se hace migración de `cliente_nombre` (texto) hacia `cliente_id` (FK) — eso será una fase posterior.
+- No se exporta a Excel ni se importa en lote.
+
+## Detalles técnicos
+
+- Componentes shadcn: `Table`, `Dialog`, `AlertDialog`, `Input`, `Label`, `Button`, `DataPagination`.
+- Iconos: `Users`, `Pencil`, `Trash2`, `Plus`, `Search` de `lucide-react`.
+- Tipo `Cliente` ya disponible en `src/components/coworking/types.ts`.
+- Patrón de realtime: igual al usado en `useCoworkingData` (canal único, cleanup en unmount).
