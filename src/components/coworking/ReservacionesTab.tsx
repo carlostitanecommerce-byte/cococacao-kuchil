@@ -62,14 +62,14 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
   }, [activeTab, selectedReservacionId]);
 
   const resetForm = () => {
-    setClienteNombre(''); setAreaId(''); setPaxCount('1');
+    setCliente(null); setAreaId(''); setPaxCount('1');
     setFechaReserva(''); setHoraInicio('09:00'); setDuracion('1');
     setEditingRes(null);
   };
 
   const openEdit = (r: Reservacion) => {
     setEditingRes(r);
-    setClienteNombre(r.cliente_nombre);
+    setCliente(r.cliente_id ? { id: r.cliente_id, nombre_completo: r.cliente_nombre } : null);
     setAreaId(r.area_id);
     setPaxCount(String(r.pax_count));
     setFechaReserva(r.fecha_reserva);
