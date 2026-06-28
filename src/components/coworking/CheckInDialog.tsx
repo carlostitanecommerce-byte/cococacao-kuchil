@@ -267,7 +267,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
 
       await supabase.from('audit_logs').insert({
         user_id: user.id, accion: 'checkin_coworking',
-        descripcion: `Check-in: ${clienteNombre.trim()} (${pax} pax)${kdsFolio ? ` · KDS #${String(kdsFolio).padStart(4, '0')}` : ''}`,
+        descripcion: `Check-in: ${cliente?.nombre_completo ?? ''} (${pax} pax)${kdsFolio ? ` · KDS #${String(kdsFolio).padStart(4, '0')}` : ''}`,
         metadata: {
           area_id: selectedAreaId,
           pax_count: pax,
