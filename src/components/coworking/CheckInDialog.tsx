@@ -13,6 +13,8 @@ import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
 import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
 import { checkWalkInVsReservations } from './conflictCheck';
+import { ClienteSelector } from './ClienteSelector';
+import type { Cliente } from './types';
 
 interface Tarifa {
   id: string;
