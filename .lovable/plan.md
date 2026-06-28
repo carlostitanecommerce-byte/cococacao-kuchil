@@ -1,29 +1,39 @@
 ## Objetivo
 
-Reforzar la validación de los campos `telefono` y `email` en el diálogo "Nuevo cliente" / "Editar cliente" del `DirectorioClientesTab`.
+Simplificar `ClienteSelector.tsx` para que la creación de un cliente nuevo sea **inmediata y silenciosa**, sin abrir un diálogo adicional que interrumpa el flujo de Check-In.
 
-## Cambios
+## Cambios en `src/components/coworking/ClienteSelector.tsx`
 
-En `src/components/coworking/DirectorioClientesTab.tsx`:
+### 1. Eliminar el diálogo de creación
+- Quitar todo el `Dialog` de "Nuevo cliente" (estado `createOpen`, `form`, `handleCreate` con campos teléfono/email).
+- Quitar imports no usados (`Dialog*`, `Label`, `Input` del diálogo).
 
-1. **Schema `zod`**:
-   - `telefono`: opcional; si se llena, debe ser exactamente 10 dígitos. Se acepta entrada con espacios/guiones (`(55) 1234-5678`) pero al validar se eliminan caracteres no numéricos y se exige `length === 10`. El valor guardado en BD será el string original tal cual lo tecleó el usuario.
-   - `email`: opcional; si se llena, debe contener `@` y un dominio con punto (regex simple `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`), además del límite de 255 chars actual.
-   - Mensajes de error específicos en español: "El teléfono debe tener 10 dígitos", "El email debe incluir una @ válida".
+### 2. Nueva función `createClienteInline(nombre)`
+- Valida que `nombre.trim()` no esté vacío.
+- Inserta en `clientes` solo con `nombre_completo` (teléfono y email quedan `null`; se pueden completar después desde el Directorio).
+- Devuelve la fila insertada (`id, nombre_completo, email, telefono`).
+- Maneja errores con `toast.error` y `toast.success("Cliente creado")` discreto.
+- Usa un flag `creating` para evitar dobles inserciones.
 
-2. **UX en el input de teléfono**:
-   - `maxLength={15}` para permitir formato con separadores.
-   - `inputMode="tel"`.
-   - Hint visual debajo del campo: "10 dígitos".
+### 3. Acción directa desde el `CommandInput`
+- En `CommandEmpty` (cuando no hay resultados y `query.trim()` no está vacío):
+  - El botón "Crear …" llama directamente a `createClienteInline(query)`, y al resolver hace `onChange(nuevo)` + cierra el popover.
+- Agregar `onKeyDown` al `CommandInput`: si el usuario presiona **Enter** y:
+  - hay `query.trim()` y `results.length === 0` y no está `loading` → ejecuta `createClienteInline(query)`.
+  - hay resultados → comportamiento por defecto de cmdk (seleccionar el resaltado).
+- Mostrar un pequeño spinner inline mientras `creating` es true (sin bloquear con modal).
 
-3. **UX en el input de email**:
-   - `type="email"` (ya estaba).
-   - Hint visual: "Debe incluir @".
+### 4. Preservar comportamiento existente
+- Búsqueda debounced en tiempo real (250 ms) y realtime de `clientes` se mantienen.
+- Botón "Limpiar" (X) y el callback `onChange(cliente | null)` siguen igual.
+- El componente sigue devolviendo el objeto `Cliente` completo al padre (que ya extrae `id` y `nombre_completo`).
 
-4. **Feedback de errores**:
-   - Mantener el `toast.error` actual con el primer mensaje del schema (suficiente, no es un formulario complejo).
+## Lo que NO cambia
 
-## Fuera de alcance
+- Schema de DB, RLS de `clientes`, ni `types.ts`.
+- `DirectorioClientesTab.tsx` sigue siendo el lugar para capturar teléfono/email con validaciones (10 dígitos / `@`).
+- Ningún otro componente que consuma `ClienteSelector`.
 
-- No se cambia la forma en que se guardan los datos (sigue siendo el string tal cual, o `null` si está vacío).
-- No se modifica el `ClienteSelector` (diálogo de creación inline) en esta iteración; si lo quieres también, lo agrego después.
+## Resultado UX
+
+El cajero escribe "Juan Pérez", no aparece en resultados → presiona Enter (o clic en "Crear 'Juan Pérez'") → se inserta en BD, se selecciona automáticamente, el popover se cierra y el flujo de Check-In continúa sin fricción.
