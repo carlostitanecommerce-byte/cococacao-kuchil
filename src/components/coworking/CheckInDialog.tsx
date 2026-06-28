@@ -51,7 +51,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const { user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [clienteNombre, setClienteNombre] = useState('');
+  const [cliente, setCliente] = useState<{ id: string; nombre_completo: string } | null>(null);
   const [selectedAreaId, setSelectedAreaId] = useState('');
   const [paxCount, setPaxCount] = useState('1');
   const [horas, setHoras] = useState('1');
