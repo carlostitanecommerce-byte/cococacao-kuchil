@@ -237,7 +237,15 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
               <form onSubmit={handleSubmit} className="space-y-4 mt-2">
                 <div className="space-y-2">
                   <Label>Cliente</Label>
-                  <Input value={clienteNombre} onChange={e => setClienteNombre(e.target.value)} placeholder="Nombre completo" required maxLength={100} />
+                  {editingRes && !cliente && (
+                    <p className="text-xs text-muted-foreground">
+                      Cliente original: <span className="font-medium">{editingRes.cliente_nombre}</span>. Selecciónalo del directorio para vincularlo.
+                    </p>
+                  )}
+                  <ClienteSelector
+                    value={cliente}
+                    onChange={(c) => setCliente(c ? { id: c.id, nombre_completo: c.nombre_completo } : null)}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Área</Label>
