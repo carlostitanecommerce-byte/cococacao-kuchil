@@ -20,6 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import { checkReservationConflict } from './conflictCheck';
 import { ReservationCalendar } from './ReservationCalendar';
 import { QuickCheckInButton } from './QuickCheckInButton';
+import { ClienteSelector } from './ClienteSelector';
 import type { Area, Reservacion } from './types';
 import { todayCDMX } from '@/lib/utils';
 
