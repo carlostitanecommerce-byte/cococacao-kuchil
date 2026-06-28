@@ -13,6 +13,7 @@ import { OccupancyGrid } from '@/components/coworking/OccupancyGrid';
 import { ActiveSessionsTable } from '@/components/coworking/ActiveSessionsTable';
 import { ReservacionesTab } from '@/components/coworking/ReservacionesTab';
 import { ConfiguracionTab } from '@/components/coworking/ConfiguracionTab';
+import { DirectorioClientesTab } from '@/components/coworking/DirectorioClientesTab';
 import type { CoworkingSession, CheckoutSummary } from '@/components/coworking/types';
 import { useCancelacionItemsSesionToasts } from '@/hooks/useCancelacionItemsSesionToasts';
 
@@ -158,6 +159,7 @@ const CoworkingPage = () => {
         <TabsList>
           <TabsTrigger value="ocupacion">Ocupación</TabsTrigger>
           <TabsTrigger value="reservaciones">Reservaciones</TabsTrigger>
+          <TabsTrigger value="directorio">Directorio</TabsTrigger>
           {isAdmin && <TabsTrigger value="configuracion">Configuración</TabsTrigger>}
         </TabsList>
 
@@ -182,6 +184,10 @@ const CoworkingPage = () => {
 
         <TabsContent value="reservaciones">
           <ReservacionesTab areas={data.areas} reservaciones={data.reservaciones} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
+        </TabsContent>
+
+        <TabsContent value="directorio">
+          <DirectorioClientesTab />
         </TabsContent>
 
         {isAdmin && (
