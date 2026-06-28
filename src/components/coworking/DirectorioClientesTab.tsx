@@ -223,7 +223,7 @@ export function DirectorioClientesTab() {
                   <TableCell className="text-muted-foreground">{c.telefono ?? '—'}</TableCell>
                   <TableCell className="text-muted-foreground">{c.email ?? '—'}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">
-                    {c.created_at ? formatDateCDMX(c.created_at) : '—'}
+                    {c.created_at ? formatDate(c.created_at) : '—'}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
