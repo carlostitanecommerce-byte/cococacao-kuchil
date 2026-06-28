@@ -311,8 +311,10 @@ export function DirectorioClientesTab() {
                 value={form.telefono}
                 onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
                 inputMode="tel"
-                maxLength={30}
+                maxLength={20}
+                placeholder="10 dígitos"
               />
+              <p className="text-xs text-muted-foreground">Debe tener 10 dígitos.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="dir-email">Email</Label>
@@ -322,7 +324,9 @@ export function DirectorioClientesTab() {
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 maxLength={255}
+                placeholder="nombre@dominio.com"
               />
+              <p className="text-xs text-muted-foreground">Debe incluir una @ válida.</p>
             </div>
           </div>
           <DialogFooter>
