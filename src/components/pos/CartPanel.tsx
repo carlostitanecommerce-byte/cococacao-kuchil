@@ -159,7 +159,7 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
             )}
             {onUpdateNotas && (
               <NotesPopover
-                value={item.notes ?? item.notas ?? ''}
+                value={item.notas ?? ''}
                 onChange={(v) => onUpdateNotas(k, v)}
               />
             )}
