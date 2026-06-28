@@ -13,6 +13,7 @@ import { OccupancyGrid } from '@/components/coworking/OccupancyGrid';
 import { ActiveSessionsTable } from '@/components/coworking/ActiveSessionsTable';
 import { ReservacionesTab } from '@/components/coworking/ReservacionesTab';
 import { ConfiguracionTab } from '@/components/coworking/ConfiguracionTab';
+import { DirectorioClientesTab } from '@/components/coworking/DirectorioClientesTab';
 import type { CoworkingSession, CheckoutSummary } from '@/components/coworking/types';
 import { useCancelacionItemsSesionToasts } from '@/hooks/useCancelacionItemsSesionToasts';
 
