@@ -409,7 +409,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
               <Input id="horas" type="number" min={0.5} step={0.5} value={horas} onChange={e => setHoras(e.target.value)} required />
             </div>
           </div>
-          <Button type="submit" className="w-full" disabled={creating || !selectedAreaId}>
+          <Button type="submit" className="w-full" disabled={creating || !selectedAreaId || !cliente}>
             {creating ? 'Registrando...' : 'Confirmar Entrada'}
           </Button>
         </form>
