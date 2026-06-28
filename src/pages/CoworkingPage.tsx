@@ -186,6 +186,10 @@ const CoworkingPage = () => {
           <ReservacionesTab areas={data.areas} reservaciones={data.reservaciones} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
         </TabsContent>
 
+        <TabsContent value="directorio">
+          <DirectorioClientesTab />
+        </TabsContent>
+
         {isAdmin && (
           <TabsContent value="configuracion">
             <ConfiguracionTab areas={data.areas} />
