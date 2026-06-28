@@ -254,7 +254,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         const kdsRes = await enviarASesionKDS({
           context: {
             sessionId: sessionData.id,
-            clienteNombre: clienteNombre.trim(),
+            clienteNombre: cliente?.nombre_completo ?? '',
             motivo: 'checkin',
           },
           items: kitchenItems,
