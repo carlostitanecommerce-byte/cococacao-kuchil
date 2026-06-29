@@ -280,7 +280,7 @@ export function ClienteSelector({
               Completa los datos para registrarlo en el directorio y seleccionarlo.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleCreateCliente} className="space-y-4">
+          <form onSubmit={handleCreateCliente} onClick={(e) => e.stopPropagation()} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="quick-nombre">Nombre completo</Label>
               <Input
