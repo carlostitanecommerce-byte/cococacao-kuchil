@@ -111,6 +111,7 @@ export function ClienteSelector({
 
   const handleCreateCliente = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (creating) return;
 
     const parsed = clienteRequiredSchema.safeParse(form);

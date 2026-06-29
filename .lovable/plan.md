@@ -1,42 +1,25 @@
-## Objetivo
-Al crear un cliente al vuelo desde `ClienteSelector` (usado en Check-In y Reservaciones), capturar también **teléfono** y **correo** con las mismas validaciones del Directorio, sin sacar al cajero del flujo.
+## Problema
 
-## Cambios
+Cuando se crea un cliente al vuelo desde el mini-diálogo de `ClienteSelector` dentro de `CheckInDialog`, aparece el toast rojo *"Capacidad excedida — Solo hay 0 lugar(es) disponible(s)"* aunque el usuario aún no haya elegido área ni pax.
 
-### 1. `src/components/coworking/clienteSchema.ts` (nuevo)
-- Extraer el `clienteSchema` de `DirectorioClientesTab.tsx` a un archivo compartido.
-- Reglas: `nombre_completo` no vacío, `telefono` exactamente 10 dígitos (ignora no numéricos), `email` válido con `@`.
-- `DirectorioClientesTab.tsx` se actualiza solo para importar desde aquí (sin cambios funcionales).
+## Causa raíz
 
-### 2. `src/components/coworking/ClienteSelector.tsx`
-- Reemplazar la creación silenciosa (que insertaba `telefono: null, email: null`) por la apertura de un **mini-diálogo de creación rápida** que pide nombre + teléfono + email.
-- Disparadores para abrir el mini-diálogo:
-  - **Enter** en el `CommandInput` cuando no hay resultados.
-  - Click en el botón "Crear "[nombre]"" del `CommandEmpty`.
-- Campos del mini-diálogo:
-  - **Nombre completo** (prellenado con el query, editable, requerido).
-  - **Teléfono** (requerido, 10 dígitos, hint "10 dígitos").
-  - **Correo electrónico** (requerido, formato válido, hint "Debe incluir @").
-- Validación con `zod` reutilizando `clienteSchema`.
-- Botones: **Cancelar** y **Crear y seleccionar** (spinner `Creando…`).
-- Al éxito: `insert` en `clientes`, `onChange(nuevoCliente)`, cerrar mini-diálogo, limpiar query, toast de éxito.
-- Al error de Supabase (p. ej. unicidad): `toast.error` y mantener el mini-diálogo abierto para corregir.
+Radix `Dialog` portea el contenido al `body`, pero **React propaga los eventos sintéticos a través del árbol de componentes, no del DOM**. Esto significa que el `submit` del `<form>` del mini-diálogo (creación rápida de cliente) **burbujea hasta el `<form>` de `CheckInDialog`** que lo contiene en el árbol de React.
 
-### 3. Anidamiento correcto Popover + Dialog (shadcn / Radix)
-Para evitar que el Dialog quede atrapado dentro del Popover (problemas de focus trap, z-index, cierre por click-outside del Popover que mata al Dialog):
+Resultado: al pulsar *"Crear y seleccionar"* se dispara también `handleCheckIn`. Como en ese momento `selectedAreaId` está vacío, `getAvailablePax('')` devuelve `0`, `pax (1) > available (0)` y el guard lanza el toast "Capacidad excedida". El mismo problema ocurriría en `ReservacionesTab` y en cualquier formulario padre que use `ClienteSelector`.
 
-- **Mover el `<Dialog>` del mini-formulario FUERA del `<Popover>`**, como hermano dentro de un `<>` fragmento raíz del componente. No vivir como hijo del `<PopoverContent>`.
-- Estado nuevo: `const [miniDialogOpen, setMiniDialogOpen] = useState(false);` y `const [draftNombre, setDraftNombre] = useState('');` para arrastrar el nombre tecleado.
-- Secuencia exacta al disparar la creación (Enter o botón "Crear"):
-  1. `setDraftNombre(query.trim());`
-  2. `setOpen(false);` — cierra el Popover/Combobox **primero**.
-  3. En el siguiente tick (`requestAnimationFrame` o `setTimeout(..., 0)`) → `setMiniDialogOpen(true);` para abrir el Dialog ya con el Popover desmontado y sin pelearse por el focus trap.
-- El `<Dialog open={miniDialogOpen} onOpenChange={setMiniDialogOpen}>` vive al lado del `<Popover>` en el JSX raíz del `ClienteSelector`.
-- Al cerrar el mini-diálogo (cancelar o éxito): `setMiniDialogOpen(false)`, limpiar `draftNombre`, no reabrir el Popover (el cliente ya quedó seleccionado o el cajero canceló).
+## Plan
 
-### 4. Sin cambios en
-- Backend / tabla `clientes` (los campos ya existen; solo los hacemos requeridos a nivel UI para la creación rápida).
-- `CheckInDialog.tsx` ni `ReservacionesTab.tsx`: siguen consumiendo `ClienteSelector` con la misma interfaz `{ id, nombre_completo }`.
+Editar **únicamente** `src/components/coworking/ClienteSelector.tsx` para aislar los eventos del mini-diálogo del formulario padre:
 
-## UX final
-Cajero escribe el nombre → Enter → se cierra el combobox → se abre el mini-diálogo con nombre prellenado, llena teléfono y email → "Crear y seleccionar" → vuelve al flujo de Check-In/Reservación con el cliente ya seleccionado y completo en el directorio.
+1. En `handleCreateCliente`, llamar `e.stopPropagation()` además de `e.preventDefault()` para que el submit del mini-diálogo no burbujee al form del padre.
+2. Añadir `onClick={(e) => e.stopPropagation()}` en el `<form>` del mini-diálogo como defensa en profundidad (clics dentro del Dialog tampoco deben afectar al padre).
+3. En el `onKeyDown` del `CommandInput`, cuando ya se llama `e.preventDefault()` y `e.stopPropagation()` al detectar Enter, mantener ese comportamiento (ya está) y verificar que el botón "Crear …" dentro de `CommandEmpty` use `type="button"` (ya lo es) — sin cambios funcionales adicionales.
+4. Asegurar que el botón Cancelar del mini-diálogo no propague: añadir `e.stopPropagation()` en su `onClick`.
+
+No se tocan `CheckInDialog.tsx`, `ReservacionesTab.tsx` ni el schema/validaciones: el fix queda contenido en el componente reusable.
+
+## Verificación
+
+- Abrir Check-in → escribir un nombre nuevo → Enter → completar mini-diálogo → *Crear y seleccionar*: debe crear el cliente, seleccionarlo en el combobox y **no** mostrar el toast "Capacidad excedida". El form de check-in queda intacto, listo para que el usuario elija área, pax y horas.
+- Repetir el flujo desde *Reservaciones* para confirmar que tampoco dispara el submit del padre.
