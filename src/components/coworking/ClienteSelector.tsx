@@ -322,7 +322,10 @@ export function ClienteSelector({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setMiniDialogOpen(false)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMiniDialogOpen(false);
+                }}
                 disabled={creating}
               >
                 Cancelar
