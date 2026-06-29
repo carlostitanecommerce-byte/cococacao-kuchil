@@ -1,70 +1,42 @@
 ## Objetivo
+Al crear un cliente al vuelo desde `ClienteSelector` (usado en Check-In y Reservaciones), capturar también **teléfono** y **correo** con las mismas validaciones del Directorio, sin sacar al cajero del flujo.
 
-Vincular formalmente las sesiones y reservaciones de coworking al directorio de clientes, reemplazando el input libre de nombre por el `ClienteSelector` y persistiendo `cliente_id` en ambas tablas (sin romper datos históricos).
+## Cambios
 
-## 1. Migración de base de datos
+### 1. `src/components/coworking/clienteSchema.ts` (nuevo)
+- Extraer el `clienteSchema` de `DirectorioClientesTab.tsx` a un archivo compartido.
+- Reglas: `nombre_completo` no vacío, `telefono` exactamente 10 dígitos (ignora no numéricos), `email` válido con `@`.
+- `DirectorioClientesTab.tsx` se actualiza solo para importar desde aquí (sin cambios funcionales).
 
-Una sola migración que toca dos tablas:
+### 2. `src/components/coworking/ClienteSelector.tsx`
+- Reemplazar la creación silenciosa (que insertaba `telefono: null, email: null`) por la apertura de un **mini-diálogo de creación rápida** que pide nombre + teléfono + email.
+- Disparadores para abrir el mini-diálogo:
+  - **Enter** en el `CommandInput` cuando no hay resultados.
+  - Click en el botón "Crear "[nombre]"" del `CommandEmpty`.
+- Campos del mini-diálogo:
+  - **Nombre completo** (prellenado con el query, editable, requerido).
+  - **Teléfono** (requerido, 10 dígitos, hint "10 dígitos").
+  - **Correo electrónico** (requerido, formato válido, hint "Debe incluir @").
+- Validación con `zod` reutilizando `clienteSchema`.
+- Botones: **Cancelar** y **Crear y seleccionar** (spinner `Creando…`).
+- Al éxito: `insert` en `clientes`, `onChange(nuevoCliente)`, cerrar mini-diálogo, limpiar query, toast de éxito.
+- Al error de Supabase (p. ej. unicidad): `toast.error` y mantener el mini-diálogo abierto para corregir.
 
-- `ALTER TABLE public.coworking_sessions ADD COLUMN cliente_id UUID NULL REFERENCES public.clientes(id) ON DELETE SET NULL;`
-- `ALTER TABLE public.coworking_reservaciones ADD COLUMN cliente_id UUID NULL REFERENCES public.clientes(id) ON DELETE SET NULL;`
-- Índices: `CREATE INDEX ... ON (cliente_id)` en ambas tablas.
+### 3. Anidamiento correcto Popover + Dialog (shadcn / Radix)
+Para evitar que el Dialog quede atrapado dentro del Popover (problemas de focus trap, z-index, cierre por click-outside del Popover que mata al Dialog):
 
-Notas importantes:
-- `cliente_id` queda **nullable** para no romper filas históricas (todavía conservamos `cliente_nombre` como espejo/denormalizado para mostrar en UI sin un join extra y para sesiones/reservaciones antiguas).
-- `ON DELETE SET NULL` evita que borrar un cliente del directorio rompa el historial transaccional.
-- No se crean nuevas tablas → no hace falta bloque `GRANT` adicional (las tablas ya tienen RLS y grants).
-- No se tocan otras políticas, triggers, ni se borra `cliente_nombre`.
+- **Mover el `<Dialog>` del mini-formulario FUERA del `<Popover>`**, como hermano dentro de un `<>` fragmento raíz del componente. No vivir como hijo del `<PopoverContent>`.
+- Estado nuevo: `const [miniDialogOpen, setMiniDialogOpen] = useState(false);` y `const [draftNombre, setDraftNombre] = useState('');` para arrastrar el nombre tecleado.
+- Secuencia exacta al disparar la creación (Enter o botón "Crear"):
+  1. `setDraftNombre(query.trim());`
+  2. `setOpen(false);` — cierra el Popover/Combobox **primero**.
+  3. En el siguiente tick (`requestAnimationFrame` o `setTimeout(..., 0)`) → `setMiniDialogOpen(true);` para abrir el Dialog ya con el Popover desmontado y sin pelearse por el focus trap.
+- El `<Dialog open={miniDialogOpen} onOpenChange={setMiniDialogOpen}>` vive al lado del `<Popover>` en el JSX raíz del `ClienteSelector`.
+- Al cerrar el mini-diálogo (cancelar o éxito): `setMiniDialogOpen(false)`, limpiar `draftNombre`, no reabrir el Popover (el cliente ya quedó seleccionado o el cajero canceló).
 
-## 2. `src/components/coworking/types.ts`
+### 4. Sin cambios en
+- Backend / tabla `clientes` (los campos ya existen; solo los hacemos requeridos a nivel UI para la creación rápida).
+- `CheckInDialog.tsx` ni `ReservacionesTab.tsx`: siguen consumiendo `ClienteSelector` con la misma interfaz `{ id, nombre_completo }`.
 
-Agregar el campo opcional a las interfaces existentes:
-- `CoworkingSession`: `cliente_id?: string | null;`
-- `Reservacion`: `cliente_id?: string | null;`
-
-(No quitar `cliente_nombre` — sigue siendo la fuente de visualización.)
-
-## 3. `src/components/coworking/CheckInDialog.tsx`
-
-- Reemplazar el bloque del `<Input id="cliente">` por `<ClienteSelector>`.
-- Nuevo estado: `const [cliente, setCliente] = useState<{ id: string; nombre_completo: string } | null>(null);` (sustituye a `clienteNombre`).
-- Validación: requerir `cliente` antes de permitir submit (`disabled={!cliente || ...}`).
-- En el `insert` a `coworking_sessions`:
-  - `cliente_id: cliente.id`
-  - `cliente_nombre: cliente.nombre_completo` (se mantiene por compatibilidad y para evitar joins en listados).
-- Sustituir las referencias a `clienteNombre.trim()` en el flujo de KDS, audit log y toast por `cliente.nombre_completo`.
-- En `resetForm` / cierre del diálogo, hacer `setCliente(null)`.
-
-## 4. `src/components/coworking/ReservacionesTab.tsx`
-
-- Reemplazar el `<Input>` "Cliente" por `<ClienteSelector>`.
-- Nuevo estado `cliente` (igual que en CheckInDialog) que sustituye a `clienteNombre`.
-- `openEdit(r)`: precargar `cliente` con `{ id: r.cliente_id, nombre_completo: r.cliente_nombre }` cuando `r.cliente_id` exista; si no (reservaciones legacy), dejar el selector vacío mostrando el nombre actual como placeholder informativo (string `r.cliente_nombre` arriba del selector para no perder contexto al reagendar).
-- En `insert` y `update` a `coworking_reservaciones`:
-  - `cliente_id: cliente.id`
-  - `cliente_nombre: cliente.nombre_completo`
-- Botón Submit deshabilitado mientras `!cliente`.
-- `resetForm` → `setCliente(null)`.
-
-## 5. Lo que NO cambia
-
-- `cliente_nombre` se mantiene en ambas tablas e interfaces (denormalizado, lectura barata, no rompe vistas/reportes existentes).
-- `DirectorioClientesTab`, `ClienteSelector`, RLS, edge functions, KDS, billing → sin cambios.
-- Componentes que solo leen `cliente_nombre` (tabla de sesiones activas, calendario, reportes) siguen funcionando sin tocarlos.
-
-## 6. Verificación post-cambio
-
-- Build + tsgo deben pasar (tipos regenerados de Supabase incluirán `cliente_id`).
-- Check-in nuevo → fila en `coworking_sessions` con `cliente_id` y `cliente_nombre` poblados.
-- Reservación nueva y reagendar → fila en `coworking_reservaciones` con ambos campos.
-- Editar reservación legacy (sin `cliente_id`) → al guardar, queda enlazada al cliente elegido.
-
-## Resumen técnico
-
-```text
-DB:    + coworking_sessions.cliente_id (FK clientes, nullable, SET NULL)
-       + coworking_reservaciones.cliente_id (FK clientes, nullable, SET NULL)
-Types: + cliente_id?: string | null  (en CoworkingSession, Reservacion)
-UI:    Input cliente → ClienteSelector (CheckInDialog, ReservacionesTab)
-Writes: insert/update guardan { cliente_id, cliente_nombre }
-```
+## UX final
+Cajero escribe el nombre → Enter → se cierra el combobox → se abre el mini-diálogo con nombre prellenado, llena teléfono y email → "Crear y seleccionar" → vuelve al flujo de Check-In/Reservación con el cliente ya seleccionado y completo en el directorio.

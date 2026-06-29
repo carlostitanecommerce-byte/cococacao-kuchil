@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { z } from 'zod';
+
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
@@ -18,6 +18,7 @@ import {
 import { DataPagination } from '@/components/ui/data-pagination';
 import { Loader2, Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
 import type { Cliente } from './types';
+import { clienteSchema } from './clienteSchema';
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -25,30 +26,6 @@ const formatDate = (iso: string) =>
 interface ClienteRow extends Cliente {
   created_at: string;
 }
-
-const clienteSchema = z.object({
-  nombre_completo: z.string().trim().min(1, 'El nombre es obligatorio').max(120, 'Máximo 120 caracteres'),
-  telefono: z
-    .string()
-    .trim()
-    .max(20, 'Máximo 20 caracteres')
-    .optional()
-    .or(z.literal(''))
-    .refine(
-      (v) => !v || v.replace(/\D/g, '').length === 10,
-      'El teléfono debe tener 10 dígitos',
-    ),
-  email: z
-    .string()
-    .trim()
-    .max(255, 'Máximo 255 caracteres')
-    .optional()
-    .or(z.literal(''))
-    .refine(
-      (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
-      'El email debe incluir una @ válida',
-    ),
-});
 
 const PAGE_SIZE_DEFAULT = 20;
 
