@@ -350,10 +350,30 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
               <SelectContent>
                 {areas.map(area => {
                   const avail = getAvailablePax(area.id);
-                  const isPrivadoOcupado = area.es_privado && avail < area.capacidad_pax;
+                  const today = todayCDMX();
+                  const activeMembership = membresias.find(m =>
+                    m.area_id === area.id &&
+                    m.estado === 'activa' &&
+                    m.fecha_inicio <= today &&
+                    m.fecha_fin >= today
+                  );
+                  const isOwnedBySelectedCliente =
+                    !!activeMembership && !!cliente && cliente.id === activeMembership.cliente_id;
+                  const isPrivadoOcupado =
+                    area.es_privado &&
+                    ((!!activeMembership && !isOwnedBySelectedCliente) ||
+                      (!activeMembership && avail < area.capacidad_pax));
                   const isDisabled = area.es_privado ? isPrivadoOcupado : avail <= 0;
                   const label = area.es_privado
-                    ? `${area.nombre_area} — ${isPrivadoOcupado ? 'Ocupado' : 'Disponible'} (privado)`
+                    ? `${area.nombre_area} — ${
+                        activeMembership && !isOwnedBySelectedCliente
+                          ? 'Renta mensual'
+                          : isPrivadoOcupado
+                            ? 'Ocupado'
+                            : isOwnedBySelectedCliente
+                              ? 'Membresía activa (titular)'
+                              : 'Disponible'
+                      } (privado)`
                     : `${area.nombre_area} — ${avail}/${area.capacidad_pax} disponibles`;
                   return (
                     <SelectItem key={area.id} value={area.id} disabled={isDisabled}>
