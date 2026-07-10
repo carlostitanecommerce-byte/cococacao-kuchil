@@ -357,7 +357,7 @@ export function ReservacionesTab({ areas, reservaciones, membresias = [], getOcc
                             <TableCell>
                               <div className="flex gap-1">
                                 {isToday && r.estado === 'pendiente' && (
-                                  <QuickCheckInButton reservacion={r} area={area} getAvailablePax={getAvailablePax} onSuccess={onSuccess} />
+                                  <QuickCheckInButton reservacion={r} area={area} getAvailablePax={getAvailablePax} membresias={membresias} onSuccess={onSuccess} />
                                 )}
                                 <Button variant="ghost" size="sm" onClick={() => openEdit(r)} title="Reagendar">
                                   <Edit className="h-3 w-3" />
