@@ -163,7 +163,7 @@ const CoworkingPage = () => {
             <Package className="h-4 w-4 mr-2" />
             Vender Membresía
           </Button>
-          <CheckInDialog areas={data.areas} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
+          <CheckInDialog areas={data.areas} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} membresias={data.membresias} onSuccess={data.fetchData} />
         </div>
       </div>
 
