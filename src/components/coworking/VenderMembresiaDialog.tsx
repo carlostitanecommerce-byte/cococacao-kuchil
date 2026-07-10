@@ -213,7 +213,7 @@ export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess }: 
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!submitting) onOpenChange(o); }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5 text-primary" />
@@ -224,7 +224,8 @@ export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess }: 
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 flex-1 overflow-y-auto pr-1 -mr-1">
+
           <div className="space-y-2">
             <Label>Cliente</Label>
             <ClienteSelector
