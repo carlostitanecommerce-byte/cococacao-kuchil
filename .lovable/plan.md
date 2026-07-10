@@ -1,41 +1,86 @@
 ## Objetivo
 
-Borrar de la base de datos todo lo generado por las pruebas de venta de membresía asociadas al cliente **Abril Valdez** (`bffc2d4f-9528-41b7-ac7e-9abe581382de`). El cliente en sí se conserva.
+Bloquear un área privada bajo membresía mensual activa para terceros, pero permitir que el titular de la membresía la reserve/use, y que su tiempo no se cobre al hacer check-out.
 
-## Registros detectados
+Estado actual verificado:
+- Tabla `coworking_sessions` ya tiene la columna `membresia_id` — **no** hace falta migración.
+- `useCoworkingData` ya carga `membresias` con estado `activa`/`pendiente_pago`.
+- `CheckInDialog` recibe `getAvailablePax` pero **no** recibe `membresias`; hay que pasársela.
 
-**`coworking_membresias`** (3 filas, todas de Abril Valdez):
-- `cd73cb10…` — pendiente_pago
-- `65e033f1…` — pendiente_pago
-- `8ea798e4…` — activa
+## Cambios
 
-**`ordenes_pos_pendientes`** (3 filas):
-- Folio 695 — pendiente
-- Folio 696 — pendiente
-- Folio 697 — cobrada, ligada a venta `bc000fa7…`
+### A. `src/components/coworking/useCoworkingData.ts` — `getAvailablePax`
 
-**`ventas`** (1 fila): folio de la venta `bc000fa7…` con su renglón en `detalle_ventas` (tipo `coworking`, descripción "Membresía coworking · Abril Valdez …").
+Añadir chequeo de membresía activa vigente hoy sobre el `areaId` **antes** del branch de sesión activa. Si el área es privada y hay membresía activa hoy → devolver `0` (bloqueo visual). Áreas públicas mantienen su cálculo actual.
 
-**`audit_logs`**: 6 registros referenciando al cliente / a "Abril Valdez".
+```ts
+const today = todayCDMX();
+const hasActiveMembership = membresias.some(
+  m => m.area_id === areaId &&
+       m.estado === 'activa' &&
+       m.fecha_inicio <= today &&
+       m.fecha_fin   >= today
+);
+if (area.es_privado) {
+  if (hasActiveMembership) return 0;
+  const hasActiveSession = sessions.some(s => s.area_id === areaId && s.estado === 'activo');
+  return hasActiveSession ? 0 : area.capacidad_pax;
+}
+return area.capacidad_pax - getOccupancy(areaId);
+```
 
-**`movimientos_caja`**: ninguno vinculado (0 filas).
+### B. `src/components/coworking/conflictCheck.ts` — `checkReservationConflict`
 
-## Acciones (una sola migración transaccional)
+Agregar parámetro opcional `clienteId?: string`. Al inicio, para áreas privadas, consultar `coworking_membresias` filtrando por `area_id`, `estado='activa'`, `fecha_inicio <= fechaReserva`, `fecha_fin >= fechaReserva`. Si existe y `cliente_id !== clienteId` → `{ hasConflict: true, message: 'Espacio bajo renta mensual por otro cliente' }`. Si es el mismo titular, continúa con las validaciones existentes.
 
-1. `DELETE FROM detalle_ventas WHERE venta_id = 'bc000fa7-ae34-47eb-ba10-7e53b28d62fc'`
-2. `DELETE FROM ventas WHERE id = 'bc000fa7-ae34-47eb-ba10-7e53b28d62fc'`
-3. `DELETE FROM ordenes_pos_pendientes WHERE cliente_nombre ILIKE '%Abril%Valdez%'` (folios 695, 696, 697)
-4. `DELETE FROM coworking_membresias WHERE cliente_id = 'bffc2d4f-9528-41b7-ac7e-9abe581382de'` (3 filas)
-5. `DELETE FROM audit_logs WHERE metadata->>'cliente_id' = 'bffc2d4f-9528-41b7-ac7e-9abe581382de' OR descripcion ILIKE '%Abril Valdez%'` (6 filas)
+También propagar `clienteId` al llamador principal en `ReservacionesTab` (donde se llama `checkReservationConflict`) usando el `cliente_id` del formulario. Rastreable con `rg "checkReservationConflict" src`.
 
-Se corren en el orden anterior para respetar dependencias (detalle → venta; orden pendiente después de la venta que la referencia; membresías ya no referenciadas).
+### C. `src/components/coworking/CheckInDialog.tsx`
 
-## Nota sobre política de datos
+1. Añadir prop `membresias: Membresia[]` (venir de `useCoworkingData` — `CoworkingPage` la tiene en `data.membresias` y ya la pasa como prop nueva).
+2. En `handleCheckIn`, después de obtener `available`, calcular:
+   ```ts
+   const today = todayCDMX();
+   const activeMembership = membresias.find(m =>
+     m.area_id === selectedAreaId &&
+     m.estado === 'activa' &&
+     m.fecha_inicio <= today &&
+     m.fecha_fin   >= today
+   );
+   ```
+3. Si `activeMembership` y (no hay cliente seleccionado o su id ≠ `activeMembership.cliente_id`) → toast "Espacio reservado — alquilado bajo membresía mensual a otro cliente" y `return`.
+4. La validación actual de área privada ocupada solo aplica cuando **no** hay membresía activa (para no bloquear al titular):
+   ```ts
+   if (!activeMembership && selectedArea?.es_privado && available < selectedArea.capacidad_pax) { … }
+   ```
+5. En el `insert` a `coworking_sessions`, agregar `membresia_id: activeMembership?.id ?? null`.
 
-La memoria del proyecto establece "nunca borrar registros transaccionales". Estos borrados se hacen como **excepción explícita** solicitada por el usuario porque son datos de prueba, no ventas reales. Si prefieres marcarlas como `cancelada` en lugar de eliminarlas físicamente, dilo y ajusto el plan.
+Además en `CoworkingPage.tsx` pasar `membresias={data.membresias}` al `<CheckInDialog />`.
+
+### D. `src/pages/CoworkingPage.tsx` — `handleCheckOut`
+
+Después de calcular `paxMultiplier` y el resto, cortocircuitar cargos de tiempo cuando la sesión es de titular de membresía:
+
+```ts
+const isMemberSession = !!session.membresia_id;
+const cargoExtra         = isMemberSession ? 0 : cargoExtraUnidad * paxMultiplier;
+const subtotalContratado = isMemberSession ? 0 : (tiempoContratadoMin / 60) * precioBase * paxMultiplier;
+```
+
+Los consumos POS (`consumosPosTotal`) y upsells siguen cobrándose normal — solo el tiempo/base de renta va en $0 para el titular.
 
 ## Fuera de alcance
 
-- No se elimina el cliente "Abril Valdez".
-- No se toca `tarifas_coworking`, `cajas`, ni configuración.
-- No hay cambios de código ni de esquema.
+- No se descuentan horas del `paquete_horas` (esta iteración es solo para membresías tipo `mes` sobre área privada). Se documenta como siguiente fase.
+- No se toca `checkWalkInVsReservations` — la bloqueo de walk-in ya está cubierto por `getAvailablePax=0` en la UI y, para el titular, por la lógica nueva en `handleCheckIn`.
+- No se altera el esquema de BD (la columna `membresia_id` ya existe en `coworking_sessions`).
+- No se modifica el tipado `Session` a menos que TypeScript se queje al leer `session.membresia_id`; si falla, se agrega el campo opcional en `types.ts`.
+
+## Archivos tocados
+
+- `src/components/coworking/useCoworkingData.ts`
+- `src/components/coworking/conflictCheck.ts`
+- `src/components/coworking/CheckInDialog.tsx`
+- `src/pages/CoworkingPage.tsx`
+- `src/components/coworking/ReservacionesTab.tsx` (solo para pasar `clienteId` a `checkReservationConflict`)
+- `src/components/coworking/types.ts` (posible campo opcional `membresia_id?: string | null` en `CoworkingSession`)
