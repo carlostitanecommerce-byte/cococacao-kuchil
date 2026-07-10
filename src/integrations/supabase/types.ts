@@ -454,6 +454,7 @@ export type Database = {
           fecha_inicio: string
           fecha_salida_real: string | null
           id: string
+          membresia_id: string | null
           monto_acumulado: number
           monto_acumulado_preview: number | null
           pax_count: number
@@ -472,6 +473,7 @@ export type Database = {
           fecha_inicio?: string
           fecha_salida_real?: string | null
           id?: string
+          membresia_id?: string | null
           monto_acumulado?: number
           monto_acumulado_preview?: number | null
           pax_count?: number
@@ -490,6 +492,7 @@ export type Database = {
           fecha_inicio?: string
           fecha_salida_real?: string | null
           id?: string
+          membresia_id?: string | null
           monto_acumulado?: number
           monto_acumulado_preview?: number | null
           pax_count?: number
@@ -511,6 +514,13 @@ export type Database = {
             columns: ["cliente_id"]
             isOneToOne: false
             referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coworking_sessions_membresia_id_fkey"
+            columns: ["membresia_id"]
+            isOneToOne: false
+            referencedRelation: "coworking_membresias"
             referencedColumns: ["id"]
           },
           {
