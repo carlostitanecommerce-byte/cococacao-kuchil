@@ -217,19 +217,6 @@ export function ClienteSelector({
                 e.currentTarget.scrollTop += e.deltaY;
               }}
             >
-            <CommandInput
-              placeholder="Buscar por nombre... (Enter para crear)"
-              value={query}
-              onValueChange={setQuery}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && canCreateFromQuery) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openMiniDialogWithName(query);
-                }
-              }}
-            />
-            <CommandList>
               {loading && (
                 <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
