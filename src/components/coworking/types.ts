@@ -5,6 +5,22 @@ export interface Cliente {
   telefono: string | null;
 }
 
+export interface Membresia {
+  id: string;
+  cliente_id: string;
+  tarifa_id: string;
+  area_id: string | null;
+  usuario_id: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  estado: 'pendiente_pago' | 'activa' | 'vencida' | 'cancelada';
+  horas_totales: number;
+  horas_disponibles: number;
+  notas: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Area {
   id: string;
   nombre_area: string;
