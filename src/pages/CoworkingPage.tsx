@@ -6,6 +6,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCoworkingData } from '@/components/coworking/useCoworkingData';
 import { CheckInDialog } from '@/components/coworking/CheckInDialog';
 import { CheckoutDialog } from '@/components/coworking/CheckoutDialog';
+import { VenderMembresiaDialog } from '@/components/coworking/VenderMembresiaDialog';
+import { Button } from '@/components/ui/button';
+import { Package } from 'lucide-react';
 import { CancelSessionDialog } from '@/components/coworking/CancelSessionDialog';
 import { ManageSessionAccountDialog } from '@/components/coworking/ManageSessionAccountDialog';
 import { SolicitudesCancelacionSesionesPanel } from '@/components/coworking/SolicitudesCancelacionSesionesPanel';
@@ -25,6 +28,7 @@ const CoworkingPage = () => {
   const [checkoutSummary, setCheckoutSummary] = useState<CheckoutSummary | null>(null);
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
   const [sessionToManageAccount, setSessionToManageAccount] = useState<CoworkingSession | null>(null);
+  const [venderMembresiaOpen, setVenderMembresiaOpen] = useState(false);
   const isAdmin = roles.includes('administrador');
 
   const METODO_LABELS: Record<string, string> = {
@@ -152,7 +156,13 @@ const CoworkingPage = () => {
           </h1>
           <p className="text-muted-foreground mt-1">Ocupación en tiempo real y registro de entradas</p>
         </div>
-        <CheckInDialog areas={data.areas} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setVenderMembresiaOpen(true)}>
+            <Package className="h-4 w-4 mr-2" />
+            Vender Membresía
+          </Button>
+          <CheckInDialog areas={data.areas} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
+        </div>
       </div>
 
       <Tabs defaultValue="ocupacion">
@@ -200,6 +210,7 @@ const CoworkingPage = () => {
       <CheckoutDialog summary={checkoutSummary} onClose={() => setCheckoutSummary(null)} onSuccess={data.fetchData} />
       <CancelSessionDialog session={sessionToCancel} isAdmin={isAdmin} onClose={() => setSessionToCancel(null)} onSuccess={data.fetchData} />
       <ManageSessionAccountDialog session={sessionToManageAccount} areas={data.areas} onClose={() => setSessionToManageAccount(null)} onSuccess={data.fetchData} />
+      <VenderMembresiaDialog open={venderMembresiaOpen} onOpenChange={setVenderMembresiaOpen} areas={data.areas} onSuccess={data.fetchData} />
     </div>
   );
 };

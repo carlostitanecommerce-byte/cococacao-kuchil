@@ -17,7 +17,9 @@ export interface CartItem {
    *  Para paquetes dinámicos con opciones se asigna un uuid para permitir múltiples
    *  configuraciones del mismo paquete en el ticket. */
   lineId?: string;
-  producto_id: string;
+  /** Nullable solo para líneas `coworking` que representan cargos sin producto de inventario
+   *  (ej. membresías vendidas directo a Caja). */
+  producto_id: string | null;
   nombre: string;
   precio_unitario: number;
   cantidad: number;
@@ -39,6 +41,11 @@ export interface CartItem {
   es_cortesia?: boolean;
   /** Precio unitario original antes de convertirse en cortesía */
   precio_original?: number;
+  /** Solo líneas de membresía: id de la membresía creada en `coworking_membresias`.
+   *  Al cobrarse en Caja permite marcar la membresía como `activa`. */
+  membresia_id?: string;
+  /** Solo líneas de membresía: id de la tarifa origen. */
+  tarifa_id?: string;
 }
 
 export interface VentaConfig {
