@@ -137,8 +137,10 @@ export function ReservationCalendar({ areas, reservaciones, membresias = [], onD
           height="auto"
           dateClick={(info) => onDateClick?.(info.dateStr)}
           eventClick={(info) => {
-            const reservacion = info.event.extendedProps.reservacion as Reservacion;
-            onEventClick?.(reservacion);
+            const reservacion = info.event.extendedProps.reservacion as Reservacion | undefined;
+            if (reservacion) {
+              onEventClick?.(reservacion);
+            }
           }}
           eventDisplay="block"
           slotMinTime="06:00:00"
