@@ -108,6 +108,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
       esPrivado: selectedArea?.es_privado ?? false,
       capacidadPax: selectedArea?.capacidad_pax ?? 0,
       excludeReservacionId: editingRes?.id,
+      clienteId: cliente?.id,
     });
 
     if (conflict.hasConflict) {

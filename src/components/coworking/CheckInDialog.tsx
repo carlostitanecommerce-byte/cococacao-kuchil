@@ -9,8 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 import { UserPlus, Gift } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { Area } from './types';
-import { dateToCDMX } from '@/lib/utils';
+import type { Area, Membresia } from './types';
+import { dateToCDMX, todayCDMX } from '@/lib/utils';
 import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
 import { checkWalkInVsReservations } from './conflictCheck';
 import { ClienteSelector } from './ClienteSelector';
@@ -44,10 +44,11 @@ interface Props {
   areas: Area[];
   getOccupancy: (areaId: string) => number;
   getAvailablePax: (areaId: string) => number;
+  membresias?: Membresia[];
   onSuccess?: () => void | Promise<void>;
 }
 
-export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess }: Props) {
+export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias = [], onSuccess }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -149,7 +150,28 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       const horasNum = parseFloat(horas);
       const available = getAvailablePax(selectedAreaId);
 
-      if (selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
+      // Detect active monthly membership on this area for today
+      const today = todayCDMX();
+      const activeMembership = membresias.find(m =>
+        m.area_id === selectedAreaId &&
+        m.estado === 'activa' &&
+        m.fecha_inicio <= today &&
+        m.fecha_fin >= today
+      );
+
+      // Third-party trying to check in on an area rented monthly → block
+      if (activeMembership && (!cliente || cliente.id !== activeMembership.cliente_id)) {
+        toast({
+          variant: 'destructive',
+          title: 'Espacio reservado',
+          description: 'Este espacio está alquilado bajo membresía mensual a otro cliente.',
+        });
+        return;
+      }
+
+      // Private-area occupancy check only when there is NO active membership
+      // (the holder should never be blocked by the availability=0 shortcut)
+      if (!activeMembership && selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
         toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
         return;
       }
@@ -204,6 +226,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         monto_acumulado: 0,
         tarifa_id: selectedTarifaId || null,
         tarifa_snapshot: tarifaSnapshot,
+        membresia_id: activeMembership?.id ?? null,
       } as any).select('id').single();
 
       if (error || !sessionData) {

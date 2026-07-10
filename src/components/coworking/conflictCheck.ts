@@ -21,11 +21,31 @@ export async function checkReservationConflict(params: {
   esPrivado: boolean;
   capacidadPax: number;
   excludeReservacionId?: string;
+  clienteId?: string;
 }): Promise<{ hasConflict: boolean; message: string }> {
-  const { areaId, fechaReserva, horaInicio, duracionHoras, paxCount, esPrivado, capacidadPax, excludeReservacionId } = params;
+  const { areaId, fechaReserva, horaInicio, duracionHoras, paxCount, esPrivado, capacidadPax, excludeReservacionId, clienteId } = params;
 
   const startDate = cdmxDate(fechaReserva, horaInicio);
   const endDate = new Date(startDate.getTime() + duracionHoras * 3600000);
+
+  // 0. Private area under active monthly membership → block anyone except the holder
+  if (esPrivado) {
+    const { data: activeMem } = await supabase
+      .from('coworking_membresias' as any)
+      .select('id, cliente_id')
+      .eq('area_id', areaId)
+      .eq('estado', 'activa')
+      .lte('fecha_inicio', fechaReserva)
+      .gte('fecha_fin', fechaReserva)
+      .maybeSingle();
+
+    if (activeMem && (activeMem as any).cliente_id !== clienteId) {
+      return {
+        hasConflict: true,
+        message: 'Espacio bajo renta mensual por otro cliente',
+      };
+    }
+  }
 
   // Check overlapping reservations
   let query = supabase
