@@ -226,6 +226,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
         monto_acumulado: 0,
         tarifa_id: selectedTarifaId || null,
         tarifa_snapshot: tarifaSnapshot,
+        membresia_id: activeMembership?.id ?? null,
       } as any).select('id').single();
 
       if (error || !sessionData) {
