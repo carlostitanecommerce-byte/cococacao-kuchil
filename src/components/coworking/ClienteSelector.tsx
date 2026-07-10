@@ -193,8 +193,30 @@ export function ClienteSelector({
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <PopoverContent
+          className="w-[--radix-popover-trigger-width] p-0"
+          align="start"
+          onWheel={(e) => e.stopPropagation()}
+        >
           <Command shouldFilter={false}>
+            <CommandInput
+              placeholder="Buscar por nombre... (Enter para crear)"
+              value={query}
+              onValueChange={setQuery}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canCreateFromQuery) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openMiniDialogWithName(query);
+                }
+              }}
+            />
+            <CommandList
+              className="max-h-72 overflow-y-auto overscroll-contain"
+              onWheelCapture={(e) => {
+                e.currentTarget.scrollTop += e.deltaY;
+              }}
+            >
             <CommandInput
               placeholder="Buscar por nombre... (Enter para crear)"
               value={query}
