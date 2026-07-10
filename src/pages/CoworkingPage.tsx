@@ -108,8 +108,10 @@ const CoworkingPage = () => {
       }
     }
 
-    const cargoExtra = cargoExtraUnidad * paxMultiplier;
-    const subtotalContratado = (tiempoContratadoMin / 60) * precioBase * paxMultiplier;
+    // Sesiones de titulares de membresía mensual: tiempo/base no se cobra
+    const isMemberSession = !!session.membresia_id;
+    const cargoExtra = isMemberSession ? 0 : cargoExtraUnidad * paxMultiplier;
+    const subtotalContratado = isMemberSession ? 0 : (tiempoContratadoMin / 60) * precioBase * paxMultiplier;
 
     // Amenities/upsells ahora viven en detalle_ventas y se cuentan en consumosPosTotal
     const upsells: any[] = [];
