@@ -9,8 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 import { UserPlus, Gift } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { Area } from './types';
-import { dateToCDMX } from '@/lib/utils';
+import type { Area, Membresia } from './types';
+import { dateToCDMX, todayCDMX } from '@/lib/utils';
 import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
 import { checkWalkInVsReservations } from './conflictCheck';
 import { ClienteSelector } from './ClienteSelector';
