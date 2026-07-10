@@ -195,7 +195,7 @@ const CoworkingPage = () => {
         </TabsContent>
 
         <TabsContent value="reservaciones">
-          <ReservacionesTab areas={data.areas} reservaciones={data.reservaciones} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
+          <ReservacionesTab areas={data.areas} reservaciones={data.reservaciones} membresias={data.membresias} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
         </TabsContent>
 
         <TabsContent value="directorio">

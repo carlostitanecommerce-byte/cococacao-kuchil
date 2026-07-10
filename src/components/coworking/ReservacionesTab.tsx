@@ -21,18 +21,19 @@ import { checkReservationConflict } from './conflictCheck';
 import { ReservationCalendar } from './ReservationCalendar';
 import { QuickCheckInButton } from './QuickCheckInButton';
 import { ClienteSelector } from './ClienteSelector';
-import type { Area, Reservacion } from './types';
+import type { Area, Reservacion, Membresia } from './types';
 import { todayCDMX } from '@/lib/utils';
 
 interface Props {
   areas: Area[];
   reservaciones: Reservacion[];
+  membresias?: Membresia[];
   getOccupancy: (areaId: string) => number;
   getAvailablePax: (areaId: string) => number;
   onSuccess?: () => void | Promise<void>;
 }
 
-export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvailablePax, onSuccess }: Props) {
+export function ReservacionesTab({ areas, reservaciones, membresias = [], getOccupancy, getAvailablePax, onSuccess }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -356,7 +357,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
                             <TableCell>
                               <div className="flex gap-1">
                                 {isToday && r.estado === 'pendiente' && (
-                                  <QuickCheckInButton reservacion={r} area={area} getAvailablePax={getAvailablePax} onSuccess={onSuccess} />
+                                  <QuickCheckInButton reservacion={r} area={area} getAvailablePax={getAvailablePax} membresias={membresias} onSuccess={onSuccess} />
                                 )}
                                 <Button variant="ghost" size="sm" onClick={() => openEdit(r)} title="Reagendar">
                                   <Edit className="h-3 w-3" />

@@ -4,17 +4,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Play } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { Reservacion, Area } from './types';
-import { dateToCDMX } from '@/lib/utils';
+import type { Reservacion, Area, Membresia } from './types';
+import { dateToCDMX, todayCDMX } from '@/lib/utils';
 
 interface Props {
   reservacion: Reservacion;
   area: Area | undefined;
   getAvailablePax: (areaId: string) => number;
+  membresias?: Membresia[];
   onSuccess?: () => void | Promise<void>;
 }
 
-export function QuickCheckInButton({ reservacion, area, getAvailablePax, onSuccess }: Props) {
+export function QuickCheckInButton({ reservacion, area, getAvailablePax, membresias = [], onSuccess }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -29,9 +30,35 @@ export function QuickCheckInButton({ reservacion, area, getAvailablePax, onSucce
     try {
       const available = getAvailablePax(reservacion.area_id);
 
-      if (area.es_privado && available < area.capacidad_pax) {
-        toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
-        return;
+      // Detect active monthly membership on this area for today
+      const today = todayCDMX();
+      const activeMembership = membresias.find(m =>
+        m.area_id === reservacion.area_id &&
+        m.estado === 'activa' &&
+        m.fecha_inicio <= today &&
+        m.fecha_fin >= today
+      );
+
+      if (area.es_privado) {
+        if (activeMembership) {
+          if (reservacion.cliente_id && reservacion.cliente_id !== activeMembership.cliente_id) {
+            toast({ variant: 'destructive', title: 'Espacio bajo renta mensual', description: 'Este espacio está alquilado bajo membresía mensual a otro cliente.' });
+            return;
+          }
+          // Titular: verificar si ya hay sesión activa
+          const { data: activeSessions } = await supabase
+            .from('coworking_sessions')
+            .select('id')
+            .eq('area_id', reservacion.area_id)
+            .eq('estado', 'activo');
+          if (activeSessions && activeSessions.length > 0) {
+            toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
+            return;
+          }
+        } else if (available < area.capacidad_pax) {
+          toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
+          return;
+        }
       }
 
       if (!area.es_privado && reservacion.pax_count > available) {
@@ -107,6 +134,7 @@ export function QuickCheckInButton({ reservacion, area, getAvailablePax, onSucce
           monto_acumulado: 0,
           tarifa_id: tarifaId,
           tarifa_snapshot: tarifaSnapshot,
+          membresia_id: activeMembership?.id ?? null,
         } as any)
         .select('id')
         .single();
