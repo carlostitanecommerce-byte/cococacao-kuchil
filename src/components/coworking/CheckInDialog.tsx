@@ -150,7 +150,28 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
       const horasNum = parseFloat(horas);
       const available = getAvailablePax(selectedAreaId);
 
-      if (selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
+      // Detect active monthly membership on this area for today
+      const today = todayCDMX();
+      const activeMembership = membresias.find(m =>
+        m.area_id === selectedAreaId &&
+        m.estado === 'activa' &&
+        m.fecha_inicio <= today &&
+        m.fecha_fin >= today
+      );
+
+      // Third-party trying to check in on an area rented monthly → block
+      if (activeMembership && (!cliente || cliente.id !== activeMembership.cliente_id)) {
+        toast({
+          variant: 'destructive',
+          title: 'Espacio reservado',
+          description: 'Este espacio está alquilado bajo membresía mensual a otro cliente.',
+        });
+        return;
+      }
+
+      // Private-area occupancy check only when there is NO active membership
+      // (the holder should never be blocked by the availability=0 shortcut)
+      if (!activeMembership && selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
         toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
         return;
       }
