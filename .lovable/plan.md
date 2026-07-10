@@ -1,22 +1,60 @@
-## Objetivo
-Eliminar la prueba de venta de membresía asociada al cliente **"Prueba"** de todas las tablas involucradas. Se conserva el cliente en el directorio (no fue solicitado su borrado).
+## Objetivo (Fase 3.2)
+Al confirmar una venta en Caja que incluya una **Membresía de Coworking**, activar automáticamente la membresía en la base de datos (`estado: 'pendiente_pago' → 'activa'`).
 
-## Registros encontrados
+## Contexto detectado
+- En `src/components/caja/CajaCheckoutPanel.tsx`, el flujo post-cobro exitoso ya existe en `handleSuccess(ventaId)` (líneas 256–276), donde ya se marca la orden pendiente como `cobrada`.
+- Cada ítem de membresía creado en Fase 3.1 lleva:
+  - `tipo_concepto: 'coworking'`
+  - `producto_id: null`
+  - `lineId: 'membresia-<UUID>'`
+  - `membresia_id: '<UUID>'` (campo clave)
+  - `tarifa_id: '<UUID>'`
+- La tabla real es `coworking_membresias` (no `coworking_membresias_activas`).
 
-| Tabla | ID | Detalle |
-|---|---|---|
-| `coworking_membresias` | `9aac061c-45a1-4905-9e36-514cf312cf24` | estado `pendiente_pago`, creada 2026-07-10 19:51 |
-| `ordenes_pos_pendientes` | `1376c79c-675e-476a-b392-65ff9ec2ac72` | folio #0694, estado `pendiente`, total $3,190.00, cliente "Prueba" |
-| `audit_logs` | `ccfda60f-0813-4a10-8635-4e67d92be0a8` | acción `venta_membresia_coworking` |
+## Cambios
 
-No se generó ningún registro en `ventas` ni en `detalle_ventas` (la orden nunca se cobró en Caja), así que no hay nada que borrar ahí.
+### 1. `src/components/caja/CajaCheckoutPanel.tsx` — dentro de `handleSuccess`
+Justo antes del `clear()`, extraer todos los `membresia_id` presentes en el carrito y marcar cada uno como `activa`:
 
-## Acción a ejecutar (una sola operación de datos)
+```ts
+// Activar membresías coworking incluidas en esta venta
+const membresiaIds = items
+  .filter((i) => i.tipo_concepto === 'coworking' && !!i.membresia_id)
+  .map((i) => i.membresia_id as string);
 
-```sql
-DELETE FROM audit_logs             WHERE id = 'ccfda60f-0813-4a10-8635-4e67d92be0a8';
-DELETE FROM ordenes_pos_pendientes WHERE id = '1376c79c-675e-476a-b392-65ff9ec2ac72';
-DELETE FROM coworking_membresias   WHERE id = '9aac061c-45a1-4905-9e36-514cf312cf24';
+if (membresiaIds.length > 0) {
+  const { error: memErr } = await supabase
+    .from('coworking_membresias')
+    .update({ estado: 'activa' })
+    .in('id', membresiaIds)
+    .eq('estado', 'pendiente_pago'); // idempotente: no re-activa canceladas/vencidas
+
+  if (memErr) {
+    console.error('No se pudo activar la membresía', memErr);
+    toast.error('Venta cobrada, pero la membresía quedó pendiente. Avisa al administrador.');
+  } else {
+    // Audit log por cada membresía activada
+    await supabase.from('audit_logs').insert(
+      membresiaIds.map((mid) => ({
+        user_id: (await supabase.auth.getUser()).data.user?.id ?? null,
+        accion: 'membresia_activada',
+        descripcion: `Membresía activada tras cobro (venta ${ventaId})`,
+        metadata: { membresia_id: mid, venta_id: ventaId },
+      }))
+    );
+    toast.success('Membresía activada');
+  }
+}
 ```
 
-Se ejecutará con la herramienta de inserción/modificación de datos (no es un cambio de esquema). El cliente "Prueba" permanece en la tabla `clientes`.
+Nota implementación:
+- El `await supabase.auth.getUser()` dentro del `.map` se resolverá una sola vez antes del insert (se extrae a una const `userId` previa para no llamarlo N veces).
+- El filtro `.eq('estado', 'pendiente_pago')` hace la operación idempotente frente a reintentos o membresías canceladas.
+- No se toca la lógica de `ordenes_pos_pendientes` ni de propinas/comisiones/reportes.
+
+### 2. Sin cambios de esquema
+La tabla `coworking_membresias` ya existe, ya tiene el estado `pendiente_pago`/`activa` y las políticas RLS necesarias. **No** se requiere migración.
+
+## Verificación
+- Type-check pasa (usa campos ya declarados en `CartItem` desde la fase 3.1).
+- Flujo esperado: vender membresía → orden aparece en Caja → cobrar → la membresía queda `activa` y visible como tal en Coworking.

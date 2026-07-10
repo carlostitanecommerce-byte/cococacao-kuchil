@@ -265,6 +265,37 @@ export function CajaCheckoutPanel() {
         toast.error('La venta se registró pero la orden quedó en la cola. Notifica al administrador.');
       }
     }
+
+    // Activar membresías coworking incluidas en esta venta (Fase 3.2)
+    const membresiaIds = items
+      .filter((i) => i.tipo_concepto === 'coworking' && !!i.membresia_id)
+      .map((i) => i.membresia_id as string);
+
+    if (membresiaIds.length > 0) {
+      const { error: memErr } = await (supabase as any)
+        .from('coworking_membresias')
+        .update({ estado: 'activa' })
+        .in('id', membresiaIds)
+        .eq('estado', 'pendiente_pago'); // idempotente
+
+      if (memErr) {
+        console.error('No se pudo activar la membresía', memErr);
+        toast.error('Venta cobrada, pero la membresía quedó pendiente. Avisa al administrador.');
+      } else {
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData.user?.id ?? null;
+        await supabase.from('audit_logs').insert(
+          membresiaIds.map((mid) => ({
+            user_id: userId,
+            accion: 'membresia_activada',
+            descripcion: `Membresía activada tras cobro (venta ${ventaId})`,
+            metadata: { membresia_id: mid, venta_id: ventaId },
+          }))
+        );
+        toast.success(membresiaIds.length === 1 ? 'Membresía activada' : `${membresiaIds.length} membresías activadas`);
+      }
+    }
+
     clear();
     setMetodoPago('efectivo');
     setTipoConsumo('sitio');
