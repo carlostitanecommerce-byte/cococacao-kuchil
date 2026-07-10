@@ -310,6 +310,76 @@ export type Database = {
         }
         Relationships: []
       }
+      coworking_membresias: {
+        Row: {
+          area_id: string | null
+          cliente_id: string
+          created_at: string
+          estado: string
+          fecha_fin: string
+          fecha_inicio: string
+          horas_disponibles: number
+          horas_totales: number
+          id: string
+          notas: string | null
+          tarifa_id: string
+          updated_at: string
+          usuario_id: string
+        }
+        Insert: {
+          area_id?: string | null
+          cliente_id: string
+          created_at?: string
+          estado?: string
+          fecha_fin: string
+          fecha_inicio: string
+          horas_disponibles?: number
+          horas_totales?: number
+          id?: string
+          notas?: string | null
+          tarifa_id: string
+          updated_at?: string
+          usuario_id: string
+        }
+        Update: {
+          area_id?: string | null
+          cliente_id?: string
+          created_at?: string
+          estado?: string
+          fecha_fin?: string
+          fecha_inicio?: string
+          horas_disponibles?: number
+          horas_totales?: number
+          id?: string
+          notas?: string | null
+          tarifa_id?: string
+          updated_at?: string
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coworking_membresias_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "areas_coworking"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coworking_membresias_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coworking_membresias_tarifa_id_fkey"
+            columns: ["tarifa_id"]
+            isOneToOne: false
+            referencedRelation: "tarifas_coworking"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coworking_reservaciones: {
         Row: {
           area_id: string
