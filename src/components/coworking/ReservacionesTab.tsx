@@ -300,6 +300,7 @@ export function ReservacionesTab({ areas, reservaciones, membresias = [], getOcc
               <ReservationCalendar
                 areas={areas}
                 reservaciones={reservaciones}
+                membresias={membresias}
                 onDateClick={openNewFromDate}
                 onEventClick={handleEventClick}
               />
