@@ -193,7 +193,11 @@ export function ClienteSelector({
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <PopoverContent
+          className="w-[--radix-popover-trigger-width] p-0"
+          align="start"
+          onWheel={(e) => e.stopPropagation()}
+        >
           <Command shouldFilter={false}>
             <CommandInput
               placeholder="Buscar por nombre... (Enter para crear)"
@@ -207,7 +211,12 @@ export function ClienteSelector({
                 }
               }}
             />
-            <CommandList>
+            <CommandList
+              className="max-h-72 overflow-y-auto overscroll-contain"
+              onWheelCapture={(e) => {
+                e.currentTarget.scrollTop += e.deltaY;
+              }}
+            >
               {loading && (
                 <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
