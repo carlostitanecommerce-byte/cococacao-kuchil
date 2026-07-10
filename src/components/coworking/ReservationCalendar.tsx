@@ -6,7 +6,13 @@ import interactionPlugin from '@fullcalendar/interaction';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import './fullcalendar.css';
-import type { Area, Reservacion } from './types';
+import type { Area, Reservacion, Membresia } from './types';
+
+function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return dt.toISOString().slice(0, 10);
+}
 
 const AREA_COLORS = [
   { bg: 'hsl(25, 65%, 28%)', border: 'hsl(25, 65%, 22%)', text: 'hsl(30, 25%, 97%)' },
