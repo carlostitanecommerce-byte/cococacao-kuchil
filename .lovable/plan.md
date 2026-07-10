@@ -1,69 +1,41 @@
 ## Objetivo
-Agregar un test end-to-end (Playwright) que cubra el flujo de **venta de membresía coworking** implementado en las fases 3.1 y 3.2, siguiendo el estilo de los specs existentes en `e2e/`.
 
-## Alcance del flujo cubierto
-1. Login como admin.
-2. Ir a `/coworking` y abrir el diálogo **"Vender Membresía"**.
-3. Seleccionar cliente, tarifa (`mes` o `paquete_horas`) y fecha de inicio.
-4. Enviar a Caja → esperar redirección a `/caja?auto_import_orden=...`.
-5. Verificar que la orden importada muestra la línea con el nombre `Membresía …` y badge `Coworking`.
-6. Confirmar la venta en efectivo.
-7. Volver a `/coworking` y verificar que la membresía aparece como `activa` (badge/estado) para ese cliente.
+Borrar de la base de datos todo lo generado por las pruebas de venta de membresía asociadas al cliente **Abril Valdez** (`bffc2d4f-9528-41b7-ac7e-9abe581382de`). El cliente en sí se conserva.
 
-## Archivo nuevo
-`e2e/coworking-membresia.spec.ts` — sigue el patrón de `e2e/coworking.spec.ts` y `e2e/pos-flow.spec.ts`:
+## Registros detectados
 
-```ts
-import { test, expect } from '@playwright/test';
+**`coworking_membresias`** (3 filas, todas de Abril Valdez):
+- `cd73cb10…` — pendiente_pago
+- `65e033f1…` — pendiente_pago
+- `8ea798e4…` — activa
 
-test.describe('Flujo de venta de Membresía Coworking', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/login');
-    await page.fill('input#username', 'admin');
-    await page.fill('input#password', 'password123');
-    await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard*', { timeout: 15000 });
-  });
+**`ordenes_pos_pendientes`** (3 filas):
+- Folio 695 — pendiente
+- Folio 696 — pendiente
+- Folio 697 — cobrada, ligada a venta `bc000fa7…`
 
-  test('Vender membresía → cobrar en Caja → membresía queda activa', async ({ page }) => {
-    await page.goto('/coworking');
+**`ventas`** (1 fila): folio de la venta `bc000fa7…` con su renglón en `detalle_ventas` (tipo `coworking`, descripción "Membresía coworking · Abril Valdez …").
 
-    // 1. Abrir diálogo "Vender Membresía"
-    await page.getByRole('button', { name: /Vender Membresía/i }).click();
-    await expect(page.getByRole('heading', { name: /Vender Membresía/i })).toBeVisible();
+**`audit_logs`**: 6 registros referenciando al cliente / a "Abril Valdez".
 
-    // 2. Seleccionar cliente (primero de la lista)
-    await page.getByRole('combobox', { name: /Cliente/i }).click();
-    await page.getByRole('option').first().click();
+**`movimientos_caja`**: ninguno vinculado (0 filas).
 
-    // 3. Seleccionar primera tarifa disponible
-    await page.getByRole('combobox').filter({ hasText: /tarifa/i }).click();
-    await page.getByRole('option').first().click();
+## Acciones (una sola migración transaccional)
 
-    // 4. Enviar a Caja
-    await page.getByRole('button', { name: 'Enviar a Caja' }).click();
+1. `DELETE FROM detalle_ventas WHERE venta_id = 'bc000fa7-ae34-47eb-ba10-7e53b28d62fc'`
+2. `DELETE FROM ventas WHERE id = 'bc000fa7-ae34-47eb-ba10-7e53b28d62fc'`
+3. `DELETE FROM ordenes_pos_pendientes WHERE cliente_nombre ILIKE '%Abril%Valdez%'` (folios 695, 696, 697)
+4. `DELETE FROM coworking_membresias WHERE cliente_id = 'bffc2d4f-9528-41b7-ac7e-9abe581382de'` (3 filas)
+5. `DELETE FROM audit_logs WHERE metadata->>'cliente_id' = 'bffc2d4f-9528-41b7-ac7e-9abe581382de' OR descripcion ILIKE '%Abril Valdez%'` (6 filas)
 
-    // 5. Redirige a /caja con la orden auto-importada
-    await expect(page).toHaveURL(/\/caja\?auto_import_orden=/, { timeout: 15000 });
+Se corren en el orden anterior para respetar dependencias (detalle → venta; orden pendiente después de la venta que la referencia; membresías ya no referenciadas).
 
-    // 6. La línea de membresía aparece en el ticket
-    await expect(page.getByText(/Membresía/i).first()).toBeVisible();
-    await expect(page.getByText('Coworking').first()).toBeVisible();
+## Nota sobre política de datos
 
-    // 7. Cobrar en efectivo
-    await page.getByRole('button', { name: /Cobrar/i }).click();
-    await page.getByRole('button', { name: /Confirmar/i }).click();
+La memoria del proyecto establece "nunca borrar registros transaccionales". Estos borrados se hacen como **excepción explícita** solicitada por el usuario porque son datos de prueba, no ventas reales. Si prefieres marcarlas como `cancelada` en lugar de eliminarlas físicamente, dilo y ajusto el plan.
 
-    // 8. Toast de éxito de membresía activada
-    await expect(page.getByText(/Membresía activada/i)).toBeVisible({ timeout: 10000 });
-  });
-});
-```
+## Fuera de alcance
 
-## Consideraciones
-- **Datos previos:** el test asume que existen al menos 1 cliente, 1 tarifa de tipo `mes`/`paquete_horas` activa y una caja abierta para el usuario `admin`. Igual que los specs existentes, si el entorno no tiene esos datos, el test fallará — este es el mismo trade-off del resto de la suite (los tests actuales son "aspirational scaffolds" y no corren en CI real).
-- **Sin cambios de esquema, sin cambios de UI, sin lógica nueva.** Solo se agrega el archivo de test.
-- No se ejecuta el test durante la implementación (el harness del sandbox no tiene credenciales reales de Supabase para el login). Queda listo para correr con `npx playwright test e2e/coworking-membresia.spec.ts` en un entorno con datos seed.
-
-## Alternativa (si prefieres)
-En vez de un Playwright spec dependiente de datos seed, podría escribirse un **test de integración con Vitest** que monte `<VenderMembresiaDialog />` con mocks del cliente de Supabase y verifique los payloads exactos que se envían a `coworking_membresias` y `ordenes_pos_pendientes`. Es más determinista pero cubre menos flujo (no toca Caja). Avísame si prefieres esta ruta en vez de/además del e2e.
+- No se elimina el cliente "Abril Valdez".
+- No se toca `tarifas_coworking`, `cajas`, ni configuración.
+- No hay cambios de código ni de esquema.
