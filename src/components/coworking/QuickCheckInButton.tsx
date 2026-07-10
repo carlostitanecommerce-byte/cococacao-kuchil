@@ -4,17 +4,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Play } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { Reservacion, Area } from './types';
-import { dateToCDMX } from '@/lib/utils';
+import type { Reservacion, Area, Membresia } from './types';
+import { dateToCDMX, todayCDMX } from '@/lib/utils';
 
 interface Props {
   reservacion: Reservacion;
   area: Area | undefined;
   getAvailablePax: (areaId: string) => number;
+  membresias?: Membresia[];
   onSuccess?: () => void | Promise<void>;
 }
 
-export function QuickCheckInButton({ reservacion, area, getAvailablePax, onSuccess }: Props) {
+export function QuickCheckInButton({ reservacion, area, getAvailablePax, membresias = [], onSuccess }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
