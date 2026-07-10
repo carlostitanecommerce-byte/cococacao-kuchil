@@ -1,23 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import type { Area, CoworkingSession, Reservacion } from './types';
+import type { Area, CoworkingSession, Reservacion, Membresia } from './types';
 import { todayCDMX } from '@/lib/utils';
 
 export function useCoworkingData() {
   const [areas, setAreas] = useState<Area[]>([]);
   const [sessions, setSessions] = useState<CoworkingSession[]>([]);
   const [reservaciones, setReservaciones] = useState<Reservacion[]>([]);
+  const [membresias, setMembresias] = useState<Membresia[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const [areasRes, sessionsRes, reservRes] = await Promise.all([
+    const [areasRes, sessionsRes, reservRes, membresiasRes] = await Promise.all([
       supabase.from('areas_coworking').select('*').order('nombre_area'),
       supabase.from('coworking_sessions').select('*').in('estado', ['activo', 'pendiente_pago'] as any),
       supabase.from('coworking_reservaciones').select('*').in('estado', ['pendiente', 'confirmada']).order('fecha_reserva'),
+      supabase.from('coworking_membresias' as any).select('*').in('estado', ['activa', 'pendiente_pago'] as any).order('fecha_fin', { ascending: true }),
     ]);
     setAreas((areasRes.data as Area[]) ?? []);
     setSessions((sessionsRes.data as unknown as CoworkingSession[]) ?? []);
     setReservaciones((reservRes.data as Reservacion[]) ?? []);
+    setMembresias((membresiasRes.data as unknown as Membresia[]) ?? []);
     setLoading(false);
   }, []);
 
@@ -29,6 +32,7 @@ export function useCoworkingData() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_sessions' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_reservaciones' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'areas_coworking' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_membresias' }, () => fetchData())
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -56,5 +60,5 @@ export function useCoworkingData() {
     return reservaciones.filter(r => r.area_id === areaId && r.fecha_reserva === today && ['pendiente', 'confirmada'].includes(r.estado));
   };
 
-  return { areas, sessions, reservaciones, loading, fetchData, getOccupancy, getAreaSessions, getAvailablePax, getTodayReservations };
+  return { areas, sessions, reservaciones, membresias, loading, fetchData, getOccupancy, getAreaSessions, getAvailablePax, getTodayReservations };
 }
