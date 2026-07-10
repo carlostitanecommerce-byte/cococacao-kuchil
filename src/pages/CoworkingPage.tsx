@@ -28,6 +28,7 @@ const CoworkingPage = () => {
   const [checkoutSummary, setCheckoutSummary] = useState<CheckoutSummary | null>(null);
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
   const [sessionToManageAccount, setSessionToManageAccount] = useState<CoworkingSession | null>(null);
+  const [venderMembresiaOpen, setVenderMembresiaOpen] = useState(false);
   const isAdmin = roles.includes('administrador');
 
   const METODO_LABELS: Record<string, string> = {
