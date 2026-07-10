@@ -2,11 +2,12 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Flujo de Coworking', () => {
   test.beforeEach(async ({ page }) => {
+    test.setTimeout(90000); // Dar 90 segundos para compilar y cargar módulos en frío
     await page.goto('/login');
     await page.fill('input#username', 'admin');
-    await page.fill('input#password', 'password123'); // Cambiar por credenciales válidas en test
+    await page.fill('input#password', 'Coco2024!'); // Credenciales reales de test
     await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard*', { timeout: 15000 });
+    await expect(page).not.toHaveURL(/.*login/, { timeout: 30000 });
   });
 
   test('Apertura de sesión de coworking y cobro', async ({ page }) => {

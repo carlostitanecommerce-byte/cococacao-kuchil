@@ -158,6 +158,7 @@ export function ClienteSelector({
             aria-expanded={open}
             disabled={disabled}
             autoFocus={autoFocus}
+            aria-label="Cliente"
             className={cn(
               'w-full justify-between font-normal',
               !value && 'text-muted-foreground',
