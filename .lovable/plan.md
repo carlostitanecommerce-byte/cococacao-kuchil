@@ -1,85 +1,60 @@
-## Análisis: ambos problemas son correctos
+## Objetivo
 
-Verificado en el código:
-
-- **CheckInDialog.tsx** líneas 351-360: el `SelectItem` de áreas usa `avail < capacidad_pax` para marcar el área privada como ocupada. Con la lógica nueva (`getAvailablePax = 0` bajo membresía activa), la oficina rentada aparecerá deshabilitada en el desplegable **incluso para el titular**, así que aunque las validaciones de `handleCheckIn` ya permiten al titular, no podrá seleccionar el área para llegar hasta ahí.
-- **QuickCheckInButton.tsx** líneas 30-35: la validación `available < area.capacidad_pax` bloquea el check-in desde una reservación en un área privada bajo membresía, **sin distinguir titular vs. tercero**. También el `insert` a `coworking_sessions` no guarda `membresia_id`.
+Visualizar en `ReservationCalendar.tsx` las membresías mensuales activas como eventos de fondo (background) que cubran desde `fecha_inicio` hasta `fecha_fin`, para que el usuario vea claramente qué áreas privadas están rentadas por mes y no intente reservar sobre ellas. Incluye protecciones contra crash en `eventClick` y desfases de zona horaria.
 
 ## Cambios
 
-### 1. `src/components/coworking/CheckInDialog.tsx` — render del `<Select>` de áreas
+### 1. `ReservationCalendar.tsx`
 
-Reemplazar el bloque `areas.map(...)` (líneas 351-364) para consultar la membresía activa vigente y decidir habilitación según el cliente ya seleccionado:
+**a) Nueva prop**
+- Agregar `membresias: Membresia[]` (opcional) a `Props`.
+- Importar `Membresia` desde `./types`.
 
-```tsx
-{areas.map(area => {
-  const avail = getAvailablePax(area.id);
-  const today = todayCDMX();
-  const activeMembership = membresias.find(m =>
-    m.area_id === area.id &&
-    m.estado === 'activa' &&
-    m.fecha_inicio <= today &&
-    m.fecha_fin   >= today
-  );
-  const isOwnedBySelectedCliente =
-    !!activeMembership && !!cliente && cliente.id === activeMembership.cliente_id;
-  // Privado ocupado si: hay membresía de otro cliente, o (sin membresía) avail está por debajo de capacidad
-  const isPrivadoOcupado =
-    area.es_privado &&
-    ((activeMembership && !isOwnedBySelectedCliente) ||
-     (!activeMembership && avail < area.capacidad_pax));
-  const isDisabled = area.es_privado ? isPrivadoOcupado : avail <= 0;
-  const label = area.es_privado
-    ? `${area.nombre_area} — ${
-        activeMembership && !isOwnedBySelectedCliente
-          ? 'Renta mensual'
-          : isPrivadoOcupado
-            ? 'Ocupado'
-            : isOwnedBySelectedCliente
-              ? 'Membresía activa (titular)'
-              : 'Disponible'
-      } (privado)`
-    : `${area.nombre_area} — ${avail}/${area.capacidad_pax} disponibles`;
-  return (
-    <SelectItem key={area.id} value={area.id} disabled={isDisabled}>{label}</SelectItem>
-  );
-})}
+**b) Utilidad de fechas segura (evita desfases de zona horaria)**
+Definir dentro del archivo:
+```ts
+function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return dt.toISOString().slice(0, 10);
+}
 ```
+Se usa para calcular el `end` exclusivo de los bloques de membresía. No se usa `new Date(fecha_fin)` con `setDate`.
 
-Ya tenemos `membresias`, `todayCDMX` y `cliente` importados/en scope en este archivo por los cambios previos.
+**c) Eventos de membresía**
+En el `useMemo` de `events`, concatenar un segundo arreglo generado desde `membresias`:
+- Filtrar por `estado === 'activa'` y `area_id` no nulo.
+- Aplicar el mismo filtro `filterAreaId` cuando no sea `'all'`.
+- Cada membresía produce:
+  - `start: m.fecha_inicio`
+  - `end: addDays(m.fecha_fin, 1)` (end exclusivo en all-day)
+  - `display: 'background'`
+  - `allDay: true`
+  - `backgroundColor`: color base del área desde `areaColorMap` (FullCalendar aplica la opacidad translúcida propia de los background events).
+  - `extendedProps: { membresia: m }` (sin `reservacion`).
+- No se define `title` visible: FullCalendar no renderiza texto sobre eventos `display: 'background'`. El bloque translúcido con el color del área es suficiente para comunicar "espacio bloqueado por renta mensual". No se añade `eventContent` ni se usa modo evento normal.
 
-### 2. `src/components/coworking/QuickCheckInButton.tsx`
+**d) Fix crash en `eventClick`**
+Reemplazar el handler para ignorar eventos que no sean reservaciones:
+```ts
+eventClick={(info) => {
+  const reservacion = info.event.extendedProps.reservacion as Reservacion | undefined;
+  if (reservacion) {
+    onEventClick?.(reservacion);
+  }
+}}
+```
+Esto evita el crash `Cannot read 'id' of undefined` al clicar un bloque de membresía.
 
-- Añadir prop `membresias?: Membresia[]` (importar tipo desde `./types`).
-- En `handleQuickCheckIn`:
-  - Calcular `activeMembership` filtrando `membresias` por `area_id === reservacion.area_id`, `estado === 'activa'` y fechas que cubran hoy (`todayCDMX()`).
-  - Consultar si hay una sesión físicamente activa en el área: `supabase.from('coworking_sessions').select('id').eq('area_id', reservacion.area_id).eq('estado', 'activo')` → `isSessionActive`.
-  - Reemplazar la validación de "área privada ocupada" por:
-    - Si `area.es_privado` y `activeMembership`:
-      - Si `reservacion.cliente_id !== activeMembership.cliente_id` → toast "Espacio bajo renta mensual" y `return`.
-      - Si es del titular pero `isSessionActive` → toast "Área privada ocupada" y `return`.
-    - Si `area.es_privado` y **no** hay `activeMembership` y `available < area.capacidad_pax` → toast actual "Área privada ocupada".
-- En el `insert` de `coworking_sessions` agregar `membresia_id: activeMembership?.id ?? null`.
-
-### 3. `src/components/coworking/ReservacionesTab.tsx`
-
-- Aceptar (o consumir) `membresias` para pasárselas a `QuickCheckInButton`. Actualmente `ReservacionesTab` recibe sus props desde `CoworkingPage`; hay dos opciones equivalentes:
-  - **Opción elegida:** añadir prop `membresias: Membresia[]` a `ReservacionesTab` y pasarla al `QuickCheckInButton` (línea 359). Es explícito y consistente con el resto del árbol.
-- Pasarla desde `CoworkingPage.tsx` (ya se le pasa `areas`, `reservaciones`, etc.).
-
-### 4. `src/pages/CoworkingPage.tsx`
-
-En el uso de `<ReservacionesTab ... />` agregar `membresias={data.membresias}`.
+### 2. `ReservacionesTab.tsx`
+- Pasar `membresias` al `<ReservationCalendar />` (la prop ya llega al tab desde `CoworkingPage`).
 
 ## Fuera de alcance
+- No se cambian `getAvailablePax`, `conflictCheck`, ni la lógica de check-in.
+- No se agrega `cliente_nombre` al tipo `Membresia` ni a la query (`useCoworkingData` sin cambios).
+- No se modifica CSS de FullCalendar ni la leyenda.
+- No se implementa `eventContent` (los bloques de fondo van sin texto por diseño de FullCalendar).
 
-- No se toca la lógica de `getAvailablePax` ni de `conflictCheck` (ya cubierta en la iteración anterior).
-- No se cambian tipos: `Membresia` y `Reservacion.cliente_id` ya existen.
-- No hay migración de base de datos.
-
-## Archivos tocados
-
-- `src/components/coworking/CheckInDialog.tsx`
-- `src/components/coworking/QuickCheckInButton.tsx`
-- `src/components/coworking/ReservacionesTab.tsx`
-- `src/pages/CoworkingPage.tsx`
+## Verificación
+- `bunx tsgo --noEmit`.
+- Revisión visual con una membresía activa: aparece bloque translúcido en las vistas mes/semana/día en el rango correcto; clicar el bloque no rompe la UI; clicar reservaciones sigue funcionando.
