@@ -156,7 +156,13 @@ const CoworkingPage = () => {
           </h1>
           <p className="text-muted-foreground mt-1">Ocupación en tiempo real y registro de entradas</p>
         </div>
-        <CheckInDialog areas={data.areas} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setVenderMembresiaOpen(true)}>
+            <Package className="h-4 w-4 mr-2" />
+            Vender Membresía
+          </Button>
+          <CheckInDialog areas={data.areas} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
+        </div>
       </div>
 
       <Tabs defaultValue="ocupacion">
