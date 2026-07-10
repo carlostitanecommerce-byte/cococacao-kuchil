@@ -76,21 +76,39 @@ De acuerdo a tus requerimientos, he diseñado el **Plan de Implementación Deter
 
 ---
 
-## Fase 5: Check-in Gratuito para Miembros (Integración Operativa)
+## Fase 5: Integración Operativa de Membresías y Paquetes de Horas
 
-**Objetivo:** Cuando el cliente mensual llegue al coworking, registrar su ingreso físico sin sumarle cargos monetarios de tiempo.
+**Objetivo:** Registrar el ingreso y salida de clientes con membresías mensuales o paquetes de horas, aplicando descuentos automáticos y cobro de excedentes.
 
 ### 5.1 Modificación en `CheckInDialog.tsx`
-- Al seleccionar un Cliente en `ClienteSelector`, buscar en el estado global si tiene una membresía `activa` válida hoy.
-- Mostrar alerta visual: *"Membresía Activa: [Nombre de Tarifa]"*.
+- Al seleccionar un Cliente en `ClienteSelector`, buscar si tiene una membresía `activa` válida hoy.
+- **Validación de Paquete de Horas:**
+  - Si es una membresía de tipo `paquete_horas`, verificar que `horas_disponibles > 0`.
+  - Si no tiene saldo (`horas_disponibles <= 0`), mostrar alerta roja: *"Membresía Agotada: El cliente no tiene horas disponibles en su paquete."* e impedir enlazar la membresía a la sesión (se cobrará tarifa regular).
+  - Si tiene saldo, mostrar alerta verde: *"Membresía Activa: Paquete de Horas (Saldo: X horas)"*.
+  - Si es una membresía mensual (`mes`), mostrar alerta verde: *"Membresía Activa: Mensual [Nombre de Tarifa]"*.
 - Si se procede con el Check-in, insertar en `coworking_sessions`:
   - `membresia_id` = ID de la membresía activa.
   - `tarifa_id` = null (o la tarifa base a precio 0).
 
-### 5.2 Modificación en `CheckoutDialog.tsx`
-- Si la sesión tiene `membresia_id != null`:
-  - El cálculo de `tiempoContratadoMin`, `tiempoExcedidoMin` y `subtotalContratado` debe ser **$0.00**.
-  - Cobrar únicamente Upsells (amenities de cafetería extras consumidos durante la sesión).
+### 5.2 Modificación en `CheckoutDialog.tsx` / Lógica de Cobro (`CoworkingPage.tsx`)
+- Si la sesión tiene `membresia_id != null` (el cliente entró bajo una membresía activa):
+  - **Caso 1: Membresía Mensual (`mes`):**
+    - El cálculo de `tiempoContratadoMin`, `tiempoExcedidoMin` y `subtotalContratado` debe ser **$0.00** (tiempo ilimitado).
+    - Cobrar únicamente Upsells.
+  - **Caso 2: Paquete de Horas (`paquete_horas`):**
+    - Calcular la duración real de la sesión: `horas_sesion = tiempoRealMin / 60.0`.
+    - Calcular excedente: `horas_excedidas = Math.max(0, horas_sesion - membresia.horas_disponibles)`.
+    - `subtotalContratado` = **$0.00** (tiempo cubierto por el paquete prepagado).
+    - `cargoExtra` = `horas_excedidas * precioBase` (las horas consumidas que superen el saldo disponible de la membresía se cobrarán a tarifa por hora regular).
+    - Cobrar de forma normal los Upsells.
+
+### 5.3 Descuento Automático de Saldo en Base de Datos
+- Crear un trigger en PostgreSQL (`trg_descontar_horas_membresia` en `public.coworking_sessions`) que se ejecute `AFTER UPDATE` cuando la sesión pase a `estado = 'finalizado'`:
+  - Si `membresia_id` no es nulo y la tarifa asociada de la membresía es `tipo_cobro = 'paquete_horas'`:
+    - Calcular las horas consumidas: `horas_consumidas = (fecha_salida_real - fecha_inicio) en horas`.
+    - Ejecutar: `UPDATE coworking_membresias SET horas_disponibles = GREATEST(0, horas_disponibles - horas_consumidas) WHERE id = membresia_id;`.
+
 
 ---
 
