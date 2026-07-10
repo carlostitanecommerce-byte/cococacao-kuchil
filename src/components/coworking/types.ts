@@ -30,6 +30,7 @@ export interface CoworkingSession {
   id: string;
   cliente_id?: string | null;
   cliente_nombre: string;
+  membresia_id?: string | null;
   area_id: string;
   pax_count: number;
   usuario_id: string;
