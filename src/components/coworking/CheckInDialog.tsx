@@ -44,10 +44,11 @@ interface Props {
   areas: Area[];
   getOccupancy: (areaId: string) => number;
   getAvailablePax: (areaId: string) => number;
+  membresias?: Membresia[];
   onSuccess?: () => void | Promise<void>;
 }
 
-export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess }: Props) {
+export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias = [], onSuccess }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
