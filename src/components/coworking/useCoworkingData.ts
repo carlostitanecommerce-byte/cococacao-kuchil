@@ -47,7 +47,18 @@ export function useCoworkingData() {
   const getAvailablePax = (areaId: string) => {
     const area = areas.find(a => a.id === areaId);
     if (!area) return 0;
+
+    // Identify if this area has an active monthly membership covering today
+    const today = todayCDMX();
+    const hasActiveMembership = membresias.some(
+      m => m.area_id === areaId &&
+           m.estado === 'activa' &&
+           m.fecha_inicio <= today &&
+           m.fecha_fin >= today
+    );
+
     if (area.es_privado) {
+      if (hasActiveMembership) return 0; // Full block: rented by monthly member
       // Private: if any active session exists, area is fully blocked
       const hasActiveSession = sessions.some(s => s.area_id === areaId && s.estado === 'activo');
       return hasActiveSession ? 0 : area.capacidad_pax;

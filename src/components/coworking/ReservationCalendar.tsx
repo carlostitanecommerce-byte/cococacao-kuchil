@@ -6,7 +6,13 @@ import interactionPlugin from '@fullcalendar/interaction';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import './fullcalendar.css';
-import type { Area, Reservacion } from './types';
+import type { Area, Reservacion, Membresia } from './types';
+
+function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return dt.toISOString().slice(0, 10);
+}
 
 const AREA_COLORS = [
   { bg: 'hsl(25, 65%, 28%)', border: 'hsl(25, 65%, 22%)', text: 'hsl(30, 25%, 97%)' },
@@ -20,11 +26,12 @@ const AREA_COLORS = [
 interface Props {
   areas: Area[];
   reservaciones: Reservacion[];
+  membresias?: Membresia[];
   onDateClick?: (dateStr: string) => void;
   onEventClick?: (reservacion: Reservacion) => void;
 }
 
-export function ReservationCalendar({ areas, reservaciones, onDateClick, onEventClick }: Props) {
+export function ReservationCalendar({ areas, reservaciones, membresias = [], onDateClick, onEventClick }: Props) {
   const [filterAreaId, setFilterAreaId] = useState<string>('all');
 
   const areaColorMap = useMemo(() => {
@@ -38,7 +45,7 @@ export function ReservationCalendar({ areas, reservaciones, onDateClick, onEvent
       ? reservaciones
       : reservaciones.filter(r => r.area_id === filterAreaId);
 
-    return filtered.map(r => {
+    const reservationEvents = filtered.map(r => {
       const area = areas.find(a => a.id === r.area_id);
       const colors = areaColorMap[r.area_id] ?? AREA_COLORS[0];
       const horaIso = r.hora_inicio.length === 5 ? `${r.hora_inicio}:00` : r.hora_inicio;
@@ -56,7 +63,28 @@ export function ReservationCalendar({ areas, reservaciones, onDateClick, onEvent
         extendedProps: { reservacion: r },
       };
     });
-  }, [reservaciones, areas, filterAreaId, areaColorMap]);
+
+    const membresiaFiltered = membresias.filter(m =>
+      m.estado === 'activa' &&
+      !!m.area_id &&
+      (filterAreaId === 'all' || m.area_id === filterAreaId)
+    );
+
+    const membresiaEvents = membresiaFiltered.map(m => {
+      const colors = areaColorMap[m.area_id as string] ?? AREA_COLORS[0];
+      return {
+        id: `membresia-${m.id}`,
+        start: m.fecha_inicio,
+        end: addDays(m.fecha_fin, 1),
+        allDay: true,
+        display: 'background' as const,
+        backgroundColor: colors.bg,
+        extendedProps: { membresia: m },
+      };
+    });
+
+    return [...reservationEvents, ...membresiaEvents];
+  }, [reservaciones, membresias, areas, filterAreaId, areaColorMap]);
 
   return (
     <div className="space-y-4">
@@ -109,8 +137,10 @@ export function ReservationCalendar({ areas, reservaciones, onDateClick, onEvent
           height="auto"
           dateClick={(info) => onDateClick?.(info.dateStr)}
           eventClick={(info) => {
-            const reservacion = info.event.extendedProps.reservacion as Reservacion;
-            onEventClick?.(reservacion);
+            const reservacion = info.event.extendedProps.reservacion as Reservacion | undefined;
+            if (reservacion) {
+              onEventClick?.(reservacion);
+            }
           }}
           eventDisplay="block"
           slotMinTime="06:00:00"
