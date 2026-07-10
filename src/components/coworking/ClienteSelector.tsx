@@ -111,6 +111,7 @@ export function ClienteSelector({
 
   const handleCreateCliente = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (creating) return;
 
     const parsed = clienteRequiredSchema.safeParse(form);
@@ -279,7 +280,7 @@ export function ClienteSelector({
               Completa los datos para registrarlo en el directorio y seleccionarlo.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleCreateCliente} className="space-y-4">
+          <form onSubmit={handleCreateCliente} onClick={(e) => e.stopPropagation()} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="quick-nombre">Nombre completo</Label>
               <Input
@@ -321,7 +322,10 @@ export function ClienteSelector({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setMiniDialogOpen(false)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMiniDialogOpen(false);
+                }}
                 disabled={creating}
               >
                 Cancelar
