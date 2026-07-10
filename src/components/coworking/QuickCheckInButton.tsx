@@ -134,6 +134,7 @@ export function QuickCheckInButton({ reservacion, area, getAvailablePax, membres
           monto_acumulado: 0,
           tarifa_id: tarifaId,
           tarifa_snapshot: tarifaSnapshot,
+          membresia_id: activeMembership?.id ?? null,
         } as any)
         .select('id')
         .single();
