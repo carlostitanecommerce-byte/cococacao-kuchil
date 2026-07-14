@@ -17,7 +17,8 @@ import { ActiveSessionsTable } from '@/components/coworking/ActiveSessionsTable'
 import { ReservacionesTab } from '@/components/coworking/ReservacionesTab';
 import { ConfiguracionTab } from '@/components/coworking/ConfiguracionTab';
 import { DirectorioClientesTab } from '@/components/coworking/DirectorioClientesTab';
-import type { CoworkingSession, CheckoutSummary } from '@/components/coworking/types';
+import { MembresiasDashboardTab } from '@/components/coworking/MembresiasDashboardTab';
+import type { CoworkingSession, CheckoutSummary, Membresia } from '@/components/coworking/types';
 import { useCancelacionItemsSesionToasts } from '@/hooks/useCancelacionItemsSesionToasts';
 
 
@@ -29,7 +30,10 @@ const CoworkingPage = () => {
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
   const [sessionToManageAccount, setSessionToManageAccount] = useState<CoworkingSession | null>(null);
   const [venderMembresiaOpen, setVenderMembresiaOpen] = useState(false);
+  const [renewMembresia, setRenewMembresia] = useState<Membresia | null>(null);
   const isAdmin = roles.includes('administrador');
+
+  const handleOpenRenewDialog = (m: Membresia) => setRenewMembresia(m);
 
   const METODO_LABELS: Record<string, string> = {
     sin_cobro: 'Sin cobro de fracción extra',
@@ -207,7 +211,7 @@ const CoworkingPage = () => {
         <TabsList>
           <TabsTrigger value="ocupacion">Ocupación</TabsTrigger>
           <TabsTrigger value="reservaciones">Reservaciones</TabsTrigger>
-          <TabsTrigger value="directorio">Directorio</TabsTrigger>
+          <TabsTrigger value="clientes">Clientes</TabsTrigger>
           {isAdmin && <TabsTrigger value="configuracion">Configuración</TabsTrigger>}
         </TabsList>
 
@@ -234,8 +238,24 @@ const CoworkingPage = () => {
           <ReservacionesTab areas={data.areas} reservaciones={data.reservaciones} membresias={data.membresias} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
         </TabsContent>
 
-        <TabsContent value="directorio">
-          <DirectorioClientesTab />
+        <TabsContent value="clientes">
+          <Tabs defaultValue="directorio">
+            <TabsList>
+              <TabsTrigger value="directorio">Directorio</TabsTrigger>
+              <TabsTrigger value="membresias">Membresías</TabsTrigger>
+            </TabsList>
+            <TabsContent value="directorio" className="pt-4">
+              <DirectorioClientesTab />
+            </TabsContent>
+            <TabsContent value="membresias" className="pt-4">
+              <MembresiasDashboardTab
+                membresias={data.membresias}
+                areas={data.areas}
+                onSuccess={data.fetchData}
+                onRenew={handleOpenRenewDialog}
+              />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         {isAdmin && (
@@ -248,7 +268,20 @@ const CoworkingPage = () => {
       <CheckoutDialog summary={checkoutSummary} onClose={() => setCheckoutSummary(null)} onSuccess={data.fetchData} />
       <CancelSessionDialog session={sessionToCancel} isAdmin={isAdmin} onClose={() => setSessionToCancel(null)} onSuccess={data.fetchData} />
       <ManageSessionAccountDialog session={sessionToManageAccount} areas={data.areas} onClose={() => setSessionToManageAccount(null)} onSuccess={data.fetchData} />
-      <VenderMembresiaDialog open={venderMembresiaOpen} onOpenChange={setVenderMembresiaOpen} areas={data.areas} onSuccess={data.fetchData} />
+      <VenderMembresiaDialog
+        open={venderMembresiaOpen || !!renewMembresia}
+        onOpenChange={(o) => {
+          if (!o) {
+            setVenderMembresiaOpen(false);
+            setRenewMembresia(null);
+          } else {
+            setVenderMembresiaOpen(true);
+          }
+        }}
+        areas={data.areas}
+        onSuccess={data.fetchData}
+        renewFrom={renewMembresia}
+      />
     </div>
   );
 };

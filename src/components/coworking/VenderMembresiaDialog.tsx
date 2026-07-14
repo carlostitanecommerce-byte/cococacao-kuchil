@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Package } from 'lucide-react';
 import { ClienteSelector } from './ClienteSelector';
-import type { Area, Cliente } from './types';
+import type { Area, Cliente, Membresia } from './types';
 import type { CartItem } from '@/components/pos/types';
 import { todayCDMX } from '@/lib/utils';
 
@@ -29,6 +29,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   areas: Area[];
   onSuccess?: () => void | Promise<void>;
+  renewFrom?: Membresia | null;
 }
 
 function addMonths(iso: string, n: number): string {
@@ -43,7 +44,7 @@ function addDays(iso: string, n: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess }: Props) {
+export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess, renewFrom }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -73,6 +74,29 @@ export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess }: 
       setTarifas((data ?? []) as Tarifa[]);
     })();
   }, [open]);
+
+  // Pre-llenar desde renewFrom cuando se abre en modo renovación
+  useEffect(() => {
+    if (!open || !renewFrom) return;
+    (async () => {
+      const { data: cli } = await supabase
+        .from('clientes')
+        .select('id, nombre_completo, email, telefono')
+        .eq('id', renewFrom.cliente_id)
+        .maybeSingle();
+      if (cli) setCliente(cli as Cliente);
+      setTarifaId(renewFrom.tarifa_id);
+      setAreaId(renewFrom.area_id ?? '');
+      const today = todayCDMX();
+      const nextStart = renewFrom.fecha_fin && renewFrom.fecha_fin >= today
+        ? addDays(renewFrom.fecha_fin, 1)
+        : today;
+      setFechaInicio(nextStart);
+      if (renewFrom.tipo_cobro === 'paquete_horas') {
+        setHorasTotales(String(renewFrom.horas_totales ?? 0));
+      }
+    })();
+  }, [open, renewFrom]);
 
   useEffect(() => {
     if (!open) {
@@ -217,7 +241,7 @@ export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess }: 
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5 text-primary" />
-            Vender Membresía
+            {renewFrom ? 'Renovar Membresía' : 'Vender Membresía'}
           </DialogTitle>
           <DialogDescription>
             Genera la membresía en estado <b>pendiente de pago</b> y envía la cuenta directo a Caja.
