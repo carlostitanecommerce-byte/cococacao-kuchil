@@ -252,9 +252,9 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
         fecha_fin_estimada: dateToCDMX(fechaFinEstimada),
         estado: 'activo',
         monto_acumulado: 0,
-        tarifa_id: selectedTarifaId || null,
-        tarifa_snapshot: tarifaSnapshot,
-        membresia_id: activeMembership?.id ?? null,
+        tarifa_id: utilizableMembership ? null : (selectedTarifaId || null),
+        tarifa_snapshot: utilizableMembership ? null : tarifaSnapshot,
+        membresia_id: utilizableMembership?.id ?? membershipByArea?.id ?? null,
       } as any).select('id').single();
 
       if (error || !sessionData) {
