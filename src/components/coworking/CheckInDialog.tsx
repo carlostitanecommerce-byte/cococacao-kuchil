@@ -136,6 +136,32 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
     fetchData();
   }, [selectedTarifaId]);
 
+  // Detectar membresía activa del cliente seleccionado (ignora area_id)
+  const clienteMembresia = useMemo(() => {
+    if (!cliente) return null;
+    const today = todayCDMX();
+    return membresias.find(m =>
+      m.cliente_id === cliente.id &&
+      m.estado === 'activa' &&
+      m.fecha_inicio <= today &&
+      m.fecha_fin >= today
+    ) ?? null;
+  }, [cliente, membresias]);
+
+  // Determinar si la membresía detectada es aplicable al área seleccionada
+  const isMembresiaAplicable = useMemo(() => {
+    if (!clienteMembresia) return false;
+    if (clienteMembresia.tipo_cobro === 'paquete_horas') {
+      return (clienteMembresia.horas_disponibles ?? 0) > 0;
+    }
+    if (clienteMembresia.tipo_cobro === 'mes') {
+      return clienteMembresia.area_id === null || clienteMembresia.area_id === selectedAreaId;
+    }
+    return false;
+  }, [clienteMembresia, selectedAreaId]);
+
+
+
 
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
