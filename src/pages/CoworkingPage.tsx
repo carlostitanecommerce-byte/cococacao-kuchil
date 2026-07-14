@@ -30,7 +30,10 @@ const CoworkingPage = () => {
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
   const [sessionToManageAccount, setSessionToManageAccount] = useState<CoworkingSession | null>(null);
   const [venderMembresiaOpen, setVenderMembresiaOpen] = useState(false);
+  const [renewMembresia, setRenewMembresia] = useState<Membresia | null>(null);
   const isAdmin = roles.includes('administrador');
+
+  const handleOpenRenewDialog = (m: Membresia) => setRenewMembresia(m);
 
   const METODO_LABELS: Record<string, string> = {
     sin_cobro: 'Sin cobro de fracción extra',
