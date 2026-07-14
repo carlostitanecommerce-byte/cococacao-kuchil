@@ -64,27 +64,8 @@ export function ReservationCalendar({ areas, reservaciones, membresias = [], onD
       };
     });
 
-    const membresiaFiltered = membresias.filter(m =>
-      m.estado === 'activa' &&
-      !!m.area_id &&
-      (filterAreaId === 'all' || m.area_id === filterAreaId)
-    );
-
-    const membresiaEvents = membresiaFiltered.map(m => {
-      const colors = areaColorMap[m.area_id as string] ?? AREA_COLORS[0];
-      return {
-        id: `membresia-${m.id}`,
-        start: m.fecha_inicio,
-        end: addDays(m.fecha_fin, 1),
-        allDay: true,
-        display: 'background' as const,
-        backgroundColor: colors.bg,
-        extendedProps: { membresia: m },
-      };
-    });
-
-    return [...reservationEvents, ...membresiaEvents];
-  }, [reservaciones, membresias, areas, filterAreaId, areaColorMap]);
+    return reservationEvents;
+  }, [reservaciones, areas, filterAreaId, areaColorMap]);
 
   return (
     <div className="space-y-4">

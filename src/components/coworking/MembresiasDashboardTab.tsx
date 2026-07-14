@@ -279,9 +279,10 @@ export function MembresiasDashboardTab({ areas, onSuccess, onRenew }: Props) {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            className="h-8 w-8 text-destructive hover:text-destructive disabled:opacity-50"
                             onClick={() => setToCancel(m)}
-                            title="Cancelar"
+                            title={m.estado === 'pendiente_pago' ? 'Membresía en Caja. Cancela la orden desde el Punto de Venta.' : 'Cancelar'}
+                            disabled={m.estado === 'pendiente_pago'}
                           >
                             <XCircle className="h-4 w-4" />
                           </Button>

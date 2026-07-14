@@ -112,13 +112,27 @@ De acuerdo a tus requerimientos, he diseñado el **Plan de Implementación Deter
 
 ---
 
-## Fase 6: Módulo de Pestaña de Membresías y Reportes
+## Fase 6: Módulo de Gestión de Clientes y Membresías (Enfoque Unificado)
 
-**Objetivo:** Interfaz para administrar clientes y renovaciones.
+**Objetivo:** Rediseñar la sección de Directorio a una pestaña unificada llamada **"Clientes"** que contenga sub-pestañas internas (segmentos) para alternar entre el Directorio de Clientes y el Panel de Control de Membresías. Esto optimiza el espacio en pantalla (ideal para POS) y consolida la administración del usuario.
 
-### 6.1 Componente `MembresiasDashboardTab.tsx`
-- Tabla que lista todas las membresías (`coworking_membresias_activas`).
-- Botones de acción:
-  - **Renovar**: Abre el modal de venta pre-llenado para empujar la fecha 30 días más.
-  - **Cancelar Membresía**: Cambia estado a `cancelada`.
-- Mostrar visualmente el estado: Activa (Verde), Vencida (Rojo), Pendiente de Pago (Naranja).
+### 6.1 Modificación en `src/pages/CoworkingPage.tsx`
+- Renombrar la pestaña principal de `"directorio"` a `"clientes"` en el componente `<Tabs>`:
+  - Cambiar `<TabsTrigger value="directorio">Directorio</TabsTrigger>` por `<TabsTrigger value="clientes">Clientes</TabsTrigger>`.
+  - Reemplazar el bloque `<TabsContent value="directorio">` por un bloque `<TabsContent value="clientes">` que implemente un control interno de sub-pestañas (utilizando el componente `<Tabs>` de Shadcn con `defaultValue="directorio"`):
+    - Sub-tab 1: `Clientes` → Renderiza `<DirectorioClientesTab />`.
+    - Sub-tab 2: `Membresías` → Renderiza `<MembresiasDashboardTab membresias={data.membresias} areas={data.areas} onSuccess={data.fetchData} onRenew={handleOpenRenewDialog} />`.
+
+### 6.2 Crear Componente `src/components/coworking/MembresiasDashboardTab.tsx`
+Componente para la visualización y gestión administrativa de los contratos y paquetes:
+- **Filtros de búsqueda y estado:** Búsqueda rápida por nombre de cliente y filtro segmentado por estado (`Todos`, `Activas`, `Vencidas`, `Pendientes de Pago`).
+- **Tabla de Membresías:**
+  - **Columnas:** Cliente, Tarifa (tipo de cobro y nombre), Área Asignada (si aplica), Vigencia (Inicio a Fin), Horas (Totales vs. Disponibles, visible solo si es `paquete_horas`), Estado y Acciones.
+  - **Visualización de Estados (Aesthetics):**
+    - `activa`: Badge verde (`emerald`).
+    - `pendiente_pago`: Badge naranja (`amber`).
+    - `vencida`: Badge rojo (`destructive`).
+    - `cancelada`: Badge gris (`muted`).
+- **Acciones Directas:**
+  - **Botón "Renovar":** Abre el modal de venta pre-llenado con los datos del cliente, la tarifa y el área anterior para agilizar la renovación.
+  - **Botón "Cancelar":** Muestra un diálogo de confirmación y actualiza el estado de la membresía en la base de datos a `cancelada`.

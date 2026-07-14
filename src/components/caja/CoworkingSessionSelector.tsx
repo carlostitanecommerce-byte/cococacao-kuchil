@@ -177,7 +177,12 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
     const paxMultiplier = session.es_privado ? 1 : session.pax_count;
 
     // Time math
-    const tiempoContratadoMin = calcMinutes(session.fecha_inicio, session.fecha_fin_estimada);
+    let tiempoContratadoMin = calcMinutes(session.fecha_inicio, session.fecha_fin_estimada);
+    if (tipoCobro === 'membresia_paquete') {
+      tiempoContratadoMin = Number(snapshot.horas_cubiertas ?? 0) * 60;
+    } else if (tipoCobro === 'membresia_mes') {
+      tiempoContratadoMin = 99999 * 60; // ilimitado para el dia
+    }
     const tiempoRealMin = calcMinutes(session.fecha_inicio, endRef);
     const extraMins = Math.max(0, tiempoRealMin - tiempoContratadoMin);
     const minCobrar = Math.max(0, extraMins - tolerancia);
@@ -189,6 +194,8 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
       baseCharge = precioBase * hours * paxMultiplier;
     } else if (tipoCobro === 'dia' || tipoCobro === 'mes') {
       baseCharge = precioBase * paxMultiplier;
+    } else if (tipoCobro === 'membresia_mes' || tipoCobro === 'membresia_paquete') {
+      baseCharge = 0;
     }
 
     const items: CartItem[] = [{
@@ -203,31 +210,33 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
     }];
 
     // Extra time charge (immutable, snapshot-driven)
-    if (minCobrar > 0 && tipoCobro === 'hora' && metodo !== 'sin_cobro') {
+    if (minCobrar > 0 && (tipoCobro === 'hora' || tipoCobro === 'membresia_paquete') && metodo !== 'sin_cobro') {
       let bloquesExtra = 0;
       let cargoExtra = 0;
       let descExtra = '';
 
+      const extraPaxMult = tipoCobro === 'membresia_paquete' ? 1 : paxMultiplier;
+
       switch (metodo) {
         case '30_min':
           bloquesExtra = Math.ceil(minCobrar / 30);
-          cargoExtra = bloquesExtra * (precioBase / 2) * paxMultiplier;
+          cargoExtra = bloquesExtra * (precioBase / 2) * extraPaxMult;
           descExtra = `${bloquesExtra} bloque${bloquesExtra !== 1 ? 's' : ''} x 30min`;
           break;
         case 'hora_cerrada':
           bloquesExtra = Math.ceil(minCobrar / 60);
-          cargoExtra = bloquesExtra * precioBase * paxMultiplier;
+          cargoExtra = bloquesExtra * precioBase * extraPaxMult;
           descExtra = `${bloquesExtra} hora${bloquesExtra !== 1 ? 's' : ''} cerrada${bloquesExtra !== 1 ? 's' : ''}`;
           break;
         case 'minuto_exacto':
           bloquesExtra = minCobrar;
-          cargoExtra = minCobrar * (precioBase / 60) * paxMultiplier;
+          cargoExtra = minCobrar * (precioBase / 60) * extraPaxMult;
           descExtra = `${minCobrar} min prorrateado`;
           break;
         case '15_min':
         default:
           bloquesExtra = Math.ceil(minCobrar / 15);
-          cargoExtra = bloquesExtra * (precioBase / 4) * paxMultiplier;
+          cargoExtra = bloquesExtra * (precioBase / 4) * extraPaxMult;
           descExtra = `${bloquesExtra} bloque${bloquesExtra !== 1 ? 's' : ''} x 15min`;
           break;
       }

@@ -141,6 +141,18 @@ export function OrdenesPosSelector({ onImport }: Props) {
 
       if (error) throw error;
 
+      // Cancelar membresías asociadas si las hay
+      const membresiasToCancel = cancelTarget.items
+        .filter(i => i.tipo_concepto === 'coworking' && !!i.membresia_id)
+        .map(i => i.membresia_id as string);
+
+      if (membresiasToCancel.length > 0) {
+        await supabase
+          .from('coworking_membresias')
+          .update({ estado: 'cancelada' as any })
+          .in('id', membresiasToCancel);
+      }
+
       // Audit log
       const folioStr = String(cancelTarget.folio).padStart(4, '0');
       await supabase.from('audit_logs').insert({

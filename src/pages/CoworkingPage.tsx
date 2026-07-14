@@ -279,6 +279,7 @@ const CoworkingPage = () => {
           }
         }}
         areas={data.areas}
+        membresias={data.membresias}
         onSuccess={data.fetchData}
         renewFrom={renewMembresia}
       />

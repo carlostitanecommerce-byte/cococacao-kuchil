@@ -233,7 +233,22 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
       const selectedTarifa = selectedTarifaId
         ? tarifas.find(t => t.id === selectedTarifaId) ?? null
         : null;
-      const tarifaSnapshot = selectedTarifa
+        
+      const activeMem = utilizableMembership ?? membershipByArea;
+      
+      const tarifaSnapshot = activeMem
+        ? {
+            nombre: activeMem.tipo_cobro === 'mes' ? 'Membresía Mensual' : 'Paquete de Horas',
+            precio_base: selectedArea?.precio_por_hora ?? 0,
+            tipo_cobro: activeMem.tipo_cobro === 'mes' ? 'membresia_mes' : 'membresia_paquete',
+            metodo_fraccion: activeMem.tipo_cobro === 'mes' ? 'sin_cobro' : 'minuto_exacto',
+            minutos_tolerancia: 0,
+            horas_cubiertas: activeMem.tipo_cobro === 'mes' ? 99999 : (activeMem.horas_disponibles ?? 0),
+            amenities: amenityOptions,
+            upsells_disponibles: upsellOptions,
+            snapshot_at: new Date().toISOString(),
+          }
+        : selectedTarifa
         ? {
             ...selectedTarifa,
             amenities: amenityOptions,
@@ -252,9 +267,9 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
         fecha_fin_estimada: dateToCDMX(fechaFinEstimada),
         estado: 'activo',
         monto_acumulado: 0,
-        tarifa_id: utilizableMembership ? null : (selectedTarifaId || null),
-        tarifa_snapshot: utilizableMembership ? null : tarifaSnapshot,
-        membresia_id: utilizableMembership?.id ?? membershipByArea?.id ?? null,
+        tarifa_id: activeMem ? null : (selectedTarifaId || null),
+        tarifa_snapshot: tarifaSnapshot,
+        membresia_id: activeMem?.id ?? null,
       } as any).select('id').single();
 
       if (error || !sessionData) {
@@ -377,6 +392,14 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
                     <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                       <CheckCircle2 className="h-4 w-4 shrink-0" />
                       <span><strong>Membresía Activa:</strong> Mensual — {clienteMembresia.nombre_tarifa ?? 'Tarifa mensual'}</span>
+                    </div>
+                  ) : !selectedAreaId ? (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      <span>
+                        <strong>Membresía Activa:</strong> Mensual para{' '}
+                        <strong>{areas.find(a => a.id === clienteMembresia.area_id)?.nombre_area || 'otra área'}</strong>.
+                      </span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20">

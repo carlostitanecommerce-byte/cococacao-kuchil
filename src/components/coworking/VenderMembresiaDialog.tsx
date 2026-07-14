@@ -28,6 +28,7 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   areas: Area[];
+  membresias?: Membresia[];
   onSuccess?: () => void | Promise<void>;
   renewFrom?: Membresia | null;
 }
@@ -44,7 +45,7 @@ function addDays(iso: string, n: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess, renewFrom }: Props) {
+export function VenderMembresiaDialog({ open, onOpenChange, areas, membresias = [], onSuccess, renewFrom }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -286,9 +287,23 @@ export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess, re
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Sin área específica</SelectItem>
-                  {areasAplicables.map(a => (
-                    <SelectItem key={a.id} value={a.id}>{a.nombre_area}</SelectItem>
-                  ))}
+                  {areasAplicables.map(a => {
+                    let ocupado = false;
+                    if (a.es_privado && tarifa?.tipo_cobro === 'mes' && fechaInicio) {
+                      const checkFin = fechaFin || addMonths(fechaInicio, 1);
+                      const overlapping = membresias.find(m => {
+                        if (m.estado !== 'activa' || m.area_id !== a.id) return false;
+                        if (renewFrom && renewFrom.id === m.id) return false;
+                        return (fechaInicio <= m.fecha_fin && checkFin >= m.fecha_inicio);
+                      });
+                      ocupado = !!overlapping;
+                    }
+                    return (
+                      <SelectItem key={a.id} value={a.id} disabled={ocupado}>
+                        {a.nombre_area} {ocupado ? '(Ocupado Mensualmente)' : ''}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
