@@ -1,80 +1,112 @@
 ## Alcance
 
-Solo la fase de **check-in**: detectar la membresía activa del cliente seleccionado, mostrar la alerta correspondiente (verde / ámbar / roja) y enlazarla a la sesión únicamente cuando aplique al área. El descuento de horas y el cobro de excedentes se resuelven en el flujo de **checkout** (fuera de este plan).
+Ajustar el cálculo del checkout en `src/pages/CoworkingPage.tsx` (`handleCheckOut`) para las sesiones que se hicieron check-in bajo una membresía activa. `CheckoutDialog.tsx` no cambia — sigue leyendo los mismos campos de `CheckoutSummary`; solo cambian los valores calculados.
 
 ## Cambios
 
-### 1. `src/components/coworking/types.ts`
-Ampliar `Membresia` con dos campos derivados del join con `tarifas_coworking`:
+### `src/pages/CoworkingPage.tsx` — `handleCheckOut`
 
-- `tipo_cobro?: 'hora' | 'dia' | 'mes' | 'paquete_horas'`
-- `nombre_tarifa?: string`
+**1. Resolver la membresía con fallback a la BD**
 
-### 2. `src/components/coworking/useCoworkingData.ts`
-Modificar la consulta de `coworking_membresias` para hacer join con la tarifa y así soportar tarifas desactivadas:
+`data.membresias` sólo trae estados `activa` / `pendiente_pago`. Si la membresía expiró mientras el cliente estaba dentro, la búsqueda en memoria devolvería `undefined` y la sesión se cobraría como tarifa completa. Por eso, si la sesión tiene `membresia_id` pero no aparece en `data.membresias`, se hace una consulta directa a Supabase:
 
 ```ts
-supabase.from('coworking_membresias' as any)
-  .select('*, tarifas_coworking(nombre, tipo_cobro)')
-  .in('estado', ['activa', 'pendiente_pago'] as any)
-  .order('fecha_fin', { ascending: true }),
+let membresia = data.membresias.find(m => m.id === session.membresia_id) ?? null;
+if (session.membresia_id && !membresia) {
+  const { data: dbMembresia } = await supabase
+    .from('coworking_membresias' as any)
+    .select('*, tarifas_coworking(nombre, tipo_cobro)')
+    .eq('id', session.membresia_id)
+    .maybeSingle();
+  if (dbMembresia) {
+    membresia = {
+      ...(dbMembresia as any),
+      tipo_cobro: (dbMembresia as any).tarifas_coworking?.tipo_cobro,
+      nombre_tarifa: (dbMembresia as any).tarifas_coworking?.nombre,
+    };
+  }
+}
 ```
 
-Al mapear el resultado, enriquecer cada `Membresia` con `tipo_cobro: m.tarifas_coworking?.tipo_cobro` y `nombre_tarifa: m.tarifas_coworking?.nombre`. Sin cambios al realtime ni a los filtros de estado.
+**2. Unificar la ruta de cálculo**
 
-### 3. `src/components/coworking/CheckInDialog.tsx`
+Reemplazar el bloque actual que ajusta `subtotalContratado`/`cargoExtra` por una lógica única que reutiliza el `switch (metodo)` ya existente y respeta `minutos_tolerancia`:
 
-**Detección de membresía del cliente (`useMemo`):**
-Cuando `cliente` está seleccionado, buscar la primera `Membresia` que cumpla:
-- `cliente_id === cliente.id`
-- `estado === 'activa'`
-- `fecha_inicio <= todayCDMX() <= fecha_fin`
+```ts
+const isMonthlyMember = !!session.membresia_id && membresia?.tipo_cobro === 'mes';
+const isPackageMember = !!session.membresia_id && membresia?.tipo_cobro === 'paquete_horas';
 
-La detección **ignora `area_id`**; la aplicabilidad se evalúa por separado.
+// Tiempos de referencia
+let tiempoContratadoMin = 0;
+if (isPackageMember) {
+  tiempoContratadoMin = Number(membresia?.horas_disponibles ?? 0) * 60;
+} else if (!isMonthlyMember) {
+  tiempoContratadoMin = (finEstimada.getTime() - inicio.getTime()) / 60000;
+}
+const tiempoRealMin = (salidaReal.getTime() - inicio.getTime()) / 60000;
+const tiempoExcedidoMin = Math.max(0, tiempoRealMin - tiempoContratadoMin);
 
-**Aplicabilidad al área seleccionada (`useMemo` adicional):**
-- `paquete_horas` → aplicable si `horas_disponibles > 0` (cualquier área).
-- `mes` → aplicable solo si `area_id === null` (acceso general) **o** `area_id === selectedAreaId`.
-- Cualquier otro tipo → no aplicable.
+const paxMultiplier = area.es_privado ? 1 : session.pax_count;
+const snapshot = session.tarifa_snapshot ?? null;
+const tolerancia = snapshot?.minutos_tolerancia ?? 0;
 
-Esto elimina la fuga en la que un cliente con mensual para Oficina A obtendría $0 en Oficina B.
+// Para paquetes de horas el excedente se cobra por minuto exacto (Opción A).
+// Así la UI muestra "Cobro excedente (Minuto exacto)" sin la contradicción
+// de "Hora cerrada · 0 bloques" cuando se cobra una fracción.
+const metodo = isPackageMember ? 'minuto_exacto' : (snapshot?.metodo_fraccion ?? '15_min');
+const precioBase = snapshot?.precio_base ?? area.precio_por_hora;
+const metodoLabel = METODO_LABELS[metodo] ?? metodo;
 
-**Alertas debajo de `ClienteSelector`** (renderizadas solo si `clienteMembresia` existe):
+// Mensual: no hay excedente
+const minCobrar = isMonthlyMember ? 0 : Math.max(0, tiempoExcedidoMin - tolerancia);
 
-- **Mensual aplicable** (`area_id === null` o coincide): banner **verde**
-  `"Membresía Activa: Mensual — {nombre_tarifa}"`.
-- **Mensual para otra área**: banner **ámbar** (advertencia, no bloqueante)
-  `"El cliente tiene una membresía mensual para {nombre_area_membresía}. Si ingresa a esta área se cobrará tarifa regular."`. El nombre del área se resuelve desde el prop `areas`.
-- **Paquete de horas con saldo**: banner **verde**
-  `"Membresía Activa: Paquete de Horas (Saldo: {horas_disponibles} h)"`.
-- **Paquete de horas agotado**: banner **rojo** (`destructive`)
-  `"Membresía Agotada: El cliente no tiene horas disponibles en su paquete."`.
+let bloquesExtra = 0;
+let cargoExtraUnidad = 0;
+if (minCobrar > 0) {
+  switch (metodo) {
+    case 'sin_cobro':    bloquesExtra = 0;                       cargoExtraUnidad = 0; break;
+    case '15_min':       bloquesExtra = Math.ceil(minCobrar/15); cargoExtraUnidad = bloquesExtra * (precioBase/4); break;
+    case '30_min':       bloquesExtra = Math.ceil(minCobrar/30); cargoExtraUnidad = bloquesExtra * (precioBase/2); break;
+    case 'hora_cerrada': bloquesExtra = Math.ceil(minCobrar/60); cargoExtraUnidad = bloquesExtra * precioBase; break;
+    case 'minuto_exacto':bloquesExtra = Math.ceil(minCobrar);    cargoExtraUnidad = minCobrar * (precioBase/60); break;
+    default:             bloquesExtra = Math.ceil(minCobrar/15); cargoExtraUnidad = bloquesExtra * (precioBase/4);
+  }
+}
 
-Íconos: `CheckCircle2` (verde), `AlertTriangle` (ámbar), `AlertCircle` (rojo) de `lucide-react`.
+// Montos finales
+let subtotalContratado = 0;
+let cargoExtra = 0;
+if (isMonthlyMember) {
+  // tiempo ilimitado, no se cobra base ni excedente
+} else if (isPackageMember) {
+  // paquete de horas: cubierto hasta el saldo; excedente a tarifa individual (sin paxMultiplier)
+  cargoExtra = cargoExtraUnidad;
+} else {
+  subtotalContratado = (tiempoContratadoMin / 60) * precioBase * paxMultiplier;
+  cargoExtra = cargoExtraUnidad * paxMultiplier;
+}
 
-**Lógica de submit (`handleCheckIn`):**
+const total = subtotalContratado + cargoExtra + upsellsTotal + consumosPosTotal;
+```
 
-1. Mantener la detección existente `membershipByArea` (por `area_id === selectedAreaId`) para bloquear a terceros con el toast "Espacio reservado".
-2. Calcular `utilizableMembership = isMembresiaAplicable ? clienteMembresia : null`.
-3. Al insertar en `coworking_sessions`:
-   - `membresia_id = utilizableMembership?.id ?? membershipByArea?.id ?? null` (prioriza la del cliente).
-   - Si hay `utilizableMembership`: `tarifa_id = null` y `tarifa_snapshot = null` (cobro base cero; el cálculo vive en checkout).
-   - Si no: se conservan `selectedTarifaId` y el `tarifaSnapshot` actual.
-4. Amenities, validaciones de aforo privado, conflicto con reservaciones y KDS permanecen sin cambios.
+**Notas:**
+- Consumos POS y upsells (que viven en `detalle_ventas`) se siguen sumando igual — se cobran para los tres casos.
+- Para mensual, `tiempoContratadoMin` y `tiempoExcedidoMin` se muestran en `0` en el resumen (tiempo ilimitado). `tiempoRealMin` sigue siendo el real medido.
+- Para paquete de horas, `tiempoContratadoMin = horas_disponibles × 60` — la UI existente mostrará "Tiempo contratado" como el saldo prepagado y el excedente en minutos.
+- `metodo = 'minuto_exacto'` para paquete de horas (Opción A). Si se prefiere Opción B más adelante, es un cambio localizado.
 
 ## Fuera de alcance
 
-- Descuento automático de `horas_disponibles` al hacer checkout.
-- Cobro de excedentes cuando la sesión supera el saldo del paquete.
-- Cambios en `CheckoutDialog`, `QuickCheckInButton`, `ReservacionesTab`, o RPCs.
-- Migraciones a la base de datos.
+- No se decrementa `horas_disponibles` en `coworking_membresias`. Ese descuento se hará cuando el pago se confirme en Caja (siguiente paso).
+- No se toca `CheckoutDialog`, `CheckInDialog`, `VenderMembresiaDialog`, ni RPCs.
+- No se cambia `useCoworkingData`.
 
 ## Verificación
 
 - `bunx tsgo --noEmit`.
-- Cliente con mensual para el área seleccionada (o `area_id=null`) → banner verde; se guarda `membresia_id` y `tarifa_id=null`.
-- Cliente con mensual para otra área → banner ámbar; check-in procede con tarifa regular (`membresia_id=null`, `tarifa_id`/`snapshot` normales).
-- Cliente con paquete de horas y saldo > 0 → banner verde con saldo; `membresia_id` enlazada, `tarifa_id=null`.
-- Cliente con paquete de horas y saldo 0 → banner rojo; check-in procede con tarifa regular.
-- Cliente sin membresía → sin banner; flujo actual.
-- Tarifa de la membresía desactivada → el banner sigue mostrando el nombre correcto gracias al join.
+- Sesión sin membresía → cálculo idéntico al actual (regresión).
+- Sesión con mensual (en memoria) → `subtotalContratado = 0`, `cargoExtra = 0`; total = solo consumos POS.
+- Sesión con mensual cuya membresía ya expiró (no está en `data.membresias`) → el fallback la trae, sigue mensual, `total = solo consumos POS`.
+- Sesión con paquete de horas y `horasSesion ≤ horas_disponibles` → `cargoExtra = 0`.
+- Sesión con paquete de horas excedida 15 min con tarifa $100/h → `cargoExtra ≈ $25.00`; UI muestra "Cobro excedente (Minuto exacto)".
+- Sesión con paquete de horas cuya membresía cambió a `vencida` → fallback la recupera y el cobro del excedente se calcula correctamente.
