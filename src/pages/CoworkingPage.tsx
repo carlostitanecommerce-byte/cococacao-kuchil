@@ -57,11 +57,37 @@ const CoworkingPage = () => {
       session = { ...session, fecha_salida_real: frozen as string };
     }
 
+    // Resolver membresía con fallback a BD (por si expiró y ya no está en data.membresias)
+    let membresia = data.membresias.find(m => m.id === session.membresia_id) ?? null;
+    if (session.membresia_id && !membresia) {
+      const { data: dbMembresia } = await supabase
+        .from('coworking_membresias' as any)
+        .select('*, tarifas_coworking(nombre, tipo_cobro)')
+        .eq('id', session.membresia_id)
+        .maybeSingle();
+      if (dbMembresia) {
+        membresia = {
+          ...(dbMembresia as any),
+          tipo_cobro: (dbMembresia as any).tarifas_coworking?.tipo_cobro,
+          nombre_tarifa: (dbMembresia as any).tarifas_coworking?.nombre,
+        };
+      }
+    }
+
+    const isMonthlyMember = !!session.membresia_id && membresia?.tipo_cobro === 'mes';
+    const isPackageMember = !!session.membresia_id && membresia?.tipo_cobro === 'paquete_horas';
+
     const inicio = new Date(session.fecha_inicio);
     const finEstimada = new Date(session.fecha_fin_estimada);
     const salidaReal = new Date(session.fecha_salida_real!);
 
-    const tiempoContratadoMin = (finEstimada.getTime() - inicio.getTime()) / 60000;
+    // Tiempos de referencia
+    let tiempoContratadoMin = 0;
+    if (isPackageMember) {
+      tiempoContratadoMin = Number(membresia?.horas_disponibles ?? 0) * 60;
+    } else if (!isMonthlyMember) {
+      tiempoContratadoMin = (finEstimada.getTime() - inicio.getTime()) / 60000;
+    }
     const tiempoRealMin = (salidaReal.getTime() - inicio.getTime()) / 60000;
     const tiempoExcedidoMin = Math.max(0, tiempoRealMin - tiempoContratadoMin);
 
@@ -70,11 +96,13 @@ const CoworkingPage = () => {
     // Snapshot inmutable: reglas congeladas al check-in
     const snapshot = session.tarifa_snapshot ?? null;
     const tolerancia = snapshot?.minutos_tolerancia ?? 0;
-    const metodo = snapshot?.metodo_fraccion ?? '15_min';
+    // Para paquete de horas cobramos el excedente por minuto exacto (Opción A)
+    const metodo = isPackageMember ? 'minuto_exacto' : (snapshot?.metodo_fraccion ?? '15_min');
     const precioBase = snapshot?.precio_base ?? area.precio_por_hora;
     const metodoLabel = METODO_LABELS[metodo] ?? metodo;
 
-    const minCobrar = tiempoExcedidoMin - tolerancia;
+    // Mensual: no hay excedente
+    const minCobrar = isMonthlyMember ? 0 : Math.max(0, tiempoExcedidoMin - tolerancia);
 
     let bloquesExtra = 0;
     let cargoExtraUnidad = 0; // antes de paxMultiplier
@@ -108,10 +136,18 @@ const CoworkingPage = () => {
       }
     }
 
-    // Sesiones de titulares de membresía mensual: tiempo/base no se cobra
-    const isMemberSession = !!session.membresia_id;
-    const cargoExtra = isMemberSession ? 0 : cargoExtraUnidad * paxMultiplier;
-    const subtotalContratado = isMemberSession ? 0 : (tiempoContratadoMin / 60) * precioBase * paxMultiplier;
+    // Montos finales según tipo de sesión
+    let subtotalContratado = 0;
+    let cargoExtra = 0;
+    if (isMonthlyMember) {
+      // tiempo ilimitado, no se cobra base ni excedente
+    } else if (isPackageMember) {
+      // paquete de horas: cubierto hasta el saldo; excedente a tarifa individual (sin paxMultiplier)
+      cargoExtra = cargoExtraUnidad;
+    } else {
+      subtotalContratado = (tiempoContratadoMin / 60) * precioBase * paxMultiplier;
+      cargoExtra = cargoExtraUnidad * paxMultiplier;
+    }
 
     // Amenities/upsells ahora viven en detalle_ventas y se cuentan en consumosPosTotal
     const upsells: any[] = [];
