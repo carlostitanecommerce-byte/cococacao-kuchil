@@ -370,6 +370,40 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
               value={cliente}
               onChange={(c) => setCliente(c ? { id: c.id, nombre_completo: c.nombre_completo } : null)}
             />
+            {cliente && clienteMembresia && (
+              <div className="mt-2 space-y-2">
+                {clienteMembresia.tipo_cobro === 'mes' && (
+                  (clienteMembresia.area_id === null || clienteMembresia.area_id === selectedAreaId) ? (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      <span><strong>Membresía Activa:</strong> Mensual — {clienteMembresia.nombre_tarifa ?? 'Tarifa mensual'}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>
+                        El cliente tiene una membresía mensual para{' '}
+                        <strong>{areas.find(a => a.id === clienteMembresia.area_id)?.nombre_area || 'otra área'}</strong>.
+                        {' '}Si ingresa a esta área se cobrará tarifa regular.
+                      </span>
+                    </div>
+                  )
+                )}
+                {clienteMembresia.tipo_cobro === 'paquete_horas' && (
+                  (clienteMembresia.horas_disponibles ?? 0) > 0 ? (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      <span><strong>Membresía Activa:</strong> Paquete de Horas (Saldo: {clienteMembresia.horas_disponibles} h)</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-destructive/15 text-destructive border border-destructive/20">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      <span><strong>Membresía Agotada:</strong> El cliente no tiene horas disponibles en su paquete.</span>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label>Área</Label>
