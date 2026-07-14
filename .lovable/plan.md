@@ -1,112 +1,50 @@
 ## Alcance
 
-Ajustar el cálculo del checkout en `src/pages/CoworkingPage.tsx` (`handleCheckOut`) para las sesiones que se hicieron check-in bajo una membresía activa. `CheckoutDialog.tsx` no cambia — sigue leyendo los mismos campos de `CheckoutSummary`; solo cambian los valores calculados.
+Crear un trigger en PostgreSQL que descuente automáticamente las horas consumidas del saldo de una membresía tipo `paquete_horas` cuando la sesión enlazada pase a `estado = 'finalizado'`. Sin cambios en el frontend.
 
-## Cambios
+## Migración
 
-### `src/pages/CoworkingPage.tsx` — `handleCheckOut`
+Un solo archivo SQL con:
 
-**1. Resolver la membresía con fallback a la BD**
+**1. Función `public.descontar_horas_membresia()`** — `RETURNS trigger`, `SECURITY DEFINER`, `SET search_path = public`.
 
-`data.membresias` sólo trae estados `activa` / `pendiente_pago`. Si la membresía expiró mientras el cliente estaba dentro, la búsqueda en memoria devolvería `undefined` y la sesión se cobraría como tarifa completa. Por eso, si la sesión tiene `membresia_id` pero no aparece en `data.membresias`, se hace una consulta directa a Supabase:
+Lógica:
+- Se dispara solo cuando `NEW.estado = 'finalizado'` y `OLD.estado IS DISTINCT FROM 'finalizado'` (evita doble descuento en updates posteriores).
+- Salir temprano si `NEW.membresia_id IS NULL` o `NEW.fecha_salida_real IS NULL` o `NEW.fecha_inicio IS NULL`.
+- Buscar la tarifa de la membresía:
+  ```sql
+  SELECT t.tipo_cobro
+  FROM public.coworking_membresias m
+  JOIN public.tarifas_coworking t ON t.id = m.tarifa_id
+  WHERE m.id = NEW.membresia_id;
+  ```
+- Solo continuar si `tipo_cobro = 'paquete_horas'`.
+- `horas_consumidas = EXTRACT(EPOCH FROM (NEW.fecha_salida_real - NEW.fecha_inicio)) / 3600.0`.
+- `UPDATE public.coworking_membresias SET horas_disponibles = GREATEST(0, horas_disponibles - horas_consumidas), updated_at = now() WHERE id = NEW.membresia_id;`
+- `INSERT INTO public.audit_logs (…)` con acción `descontar_horas_membresia`, metadata con `session_id`, `membresia_id`, `horas_consumidas`, `saldo_anterior`, `saldo_nuevo`.
+- `RETURN NEW`.
 
-```ts
-let membresia = data.membresias.find(m => m.id === session.membresia_id) ?? null;
-if (session.membresia_id && !membresia) {
-  const { data: dbMembresia } = await supabase
-    .from('coworking_membresias' as any)
-    .select('*, tarifas_coworking(nombre, tipo_cobro)')
-    .eq('id', session.membresia_id)
-    .maybeSingle();
-  if (dbMembresia) {
-    membresia = {
-      ...(dbMembresia as any),
-      tipo_cobro: (dbMembresia as any).tarifas_coworking?.tipo_cobro,
-      nombre_tarifa: (dbMembresia as any).tarifas_coworking?.nombre,
-    };
-  }
-}
+**2. Trigger `trg_descontar_horas_membresia`**:
+```sql
+CREATE TRIGGER trg_descontar_horas_membresia
+AFTER UPDATE OF estado ON public.coworking_sessions
+FOR EACH ROW
+WHEN (NEW.estado = 'finalizado' AND OLD.estado IS DISTINCT FROM 'finalizado')
+EXECUTE FUNCTION public.descontar_horas_membresia();
 ```
-
-**2. Unificar la ruta de cálculo**
-
-Reemplazar el bloque actual que ajusta `subtotalContratado`/`cargoExtra` por una lógica única que reutiliza el `switch (metodo)` ya existente y respeta `minutos_tolerancia`:
-
-```ts
-const isMonthlyMember = !!session.membresia_id && membresia?.tipo_cobro === 'mes';
-const isPackageMember = !!session.membresia_id && membresia?.tipo_cobro === 'paquete_horas';
-
-// Tiempos de referencia
-let tiempoContratadoMin = 0;
-if (isPackageMember) {
-  tiempoContratadoMin = Number(membresia?.horas_disponibles ?? 0) * 60;
-} else if (!isMonthlyMember) {
-  tiempoContratadoMin = (finEstimada.getTime() - inicio.getTime()) / 60000;
-}
-const tiempoRealMin = (salidaReal.getTime() - inicio.getTime()) / 60000;
-const tiempoExcedidoMin = Math.max(0, tiempoRealMin - tiempoContratadoMin);
-
-const paxMultiplier = area.es_privado ? 1 : session.pax_count;
-const snapshot = session.tarifa_snapshot ?? null;
-const tolerancia = snapshot?.minutos_tolerancia ?? 0;
-
-// Para paquetes de horas el excedente se cobra por minuto exacto (Opción A).
-// Así la UI muestra "Cobro excedente (Minuto exacto)" sin la contradicción
-// de "Hora cerrada · 0 bloques" cuando se cobra una fracción.
-const metodo = isPackageMember ? 'minuto_exacto' : (snapshot?.metodo_fraccion ?? '15_min');
-const precioBase = snapshot?.precio_base ?? area.precio_por_hora;
-const metodoLabel = METODO_LABELS[metodo] ?? metodo;
-
-// Mensual: no hay excedente
-const minCobrar = isMonthlyMember ? 0 : Math.max(0, tiempoExcedidoMin - tolerancia);
-
-let bloquesExtra = 0;
-let cargoExtraUnidad = 0;
-if (minCobrar > 0) {
-  switch (metodo) {
-    case 'sin_cobro':    bloquesExtra = 0;                       cargoExtraUnidad = 0; break;
-    case '15_min':       bloquesExtra = Math.ceil(minCobrar/15); cargoExtraUnidad = bloquesExtra * (precioBase/4); break;
-    case '30_min':       bloquesExtra = Math.ceil(minCobrar/30); cargoExtraUnidad = bloquesExtra * (precioBase/2); break;
-    case 'hora_cerrada': bloquesExtra = Math.ceil(minCobrar/60); cargoExtraUnidad = bloquesExtra * precioBase; break;
-    case 'minuto_exacto':bloquesExtra = Math.ceil(minCobrar);    cargoExtraUnidad = minCobrar * (precioBase/60); break;
-    default:             bloquesExtra = Math.ceil(minCobrar/15); cargoExtraUnidad = bloquesExtra * (precioBase/4);
-  }
-}
-
-// Montos finales
-let subtotalContratado = 0;
-let cargoExtra = 0;
-if (isMonthlyMember) {
-  // tiempo ilimitado, no se cobra base ni excedente
-} else if (isPackageMember) {
-  // paquete de horas: cubierto hasta el saldo; excedente a tarifa individual (sin paxMultiplier)
-  cargoExtra = cargoExtraUnidad;
-} else {
-  subtotalContratado = (tiempoContratadoMin / 60) * precioBase * paxMultiplier;
-  cargoExtra = cargoExtraUnidad * paxMultiplier;
-}
-
-const total = subtotalContratado + cargoExtra + upsellsTotal + consumosPosTotal;
-```
-
-**Notas:**
-- Consumos POS y upsells (que viven en `detalle_ventas`) se siguen sumando igual — se cobran para los tres casos.
-- Para mensual, `tiempoContratadoMin` y `tiempoExcedidoMin` se muestran en `0` en el resumen (tiempo ilimitado). `tiempoRealMin` sigue siendo el real medido.
-- Para paquete de horas, `tiempoContratadoMin = horas_disponibles × 60` — la UI existente mostrará "Tiempo contratado" como el saldo prepagado y el excedente en minutos.
-- `metodo = 'minuto_exacto'` para paquete de horas (Opción A). Si se prefiere Opción B más adelante, es un cambio localizado.
 
 ## Fuera de alcance
 
-- No se decrementa `horas_disponibles` en `coworking_membresias`. Ese descuento se hará cuando el pago se confirme en Caja (siguiente paso).
-- No se toca `CheckoutDialog`, `CheckInDialog`, `VenderMembresiaDialog`, ni RPCs.
-- No se cambia `useCoworkingData`.
+- No se cambia ninguna función existente (`freeze_checkout_coworking`, `cancelar_sesion_coworking`, etc.).
+- No se cobra excedente aquí — eso ya lo hace `handleCheckOut` en la UI.
+- No se modifica el frontend.
+- No se decrementan horas al pasar a `pendiente_pago` (solo cuando la venta se completa y la sesión llega a `finalizado`).
 
 ## Verificación
 
-- `bunx tsgo --noEmit`.
-- Sesión sin membresía → cálculo idéntico al actual (regresión).
-- Sesión con mensual (en memoria) → `subtotalContratado = 0`, `cargoExtra = 0`; total = solo consumos POS.
-- Sesión con mensual cuya membresía ya expiró (no está en `data.membresias`) → el fallback la trae, sigue mensual, `total = solo consumos POS`.
-- Sesión con paquete de horas y `horasSesion ≤ horas_disponibles` → `cargoExtra = 0`.
-- Sesión con paquete de horas excedida 15 min con tarifa $100/h → `cargoExtra ≈ $25.00`; UI muestra "Cobro excedente (Minuto exacto)".
-- Sesión con paquete de horas cuya membresía cambió a `vencida` → fallback la recupera y el cobro del excedente se calcula correctamente.
+- Sesión con membresía mensual pasando a `finalizado` → no se toca `horas_disponibles`.
+- Sesión sin membresía pasando a `finalizado` → no efecto.
+- Sesión con `paquete_horas`, 2h reales, saldo 10h → saldo queda en 8h.
+- Sesión con `paquete_horas`, 12h reales, saldo 10h → saldo queda en 0 (por el `GREATEST(0, …)`).
+- Reversión: si por alguna operación una sesión vuelve a pasar a `finalizado`, el `WHEN` con `IS DISTINCT FROM` evita doble descuento en el mismo `UPDATE`; solo se re-ejecutaría si la sesión sale de `finalizado` y regresa (flujo hoy no ocurre).
+- Consultar `audit_logs` para trazabilidad del descuento.
