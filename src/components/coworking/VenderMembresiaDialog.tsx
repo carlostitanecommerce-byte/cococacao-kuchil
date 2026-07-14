@@ -241,7 +241,7 @@ export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess, re
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5 text-primary" />
-            Vender Membresía
+            {renewFrom ? 'Renovar Membresía' : 'Vender Membresía'}
           </DialogTitle>
           <DialogDescription>
             Genera la membresía en estado <b>pendiente de pago</b> y envía la cuenta directo a Caja.
