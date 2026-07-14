@@ -15,12 +15,21 @@ export function useCoworkingData() {
       supabase.from('areas_coworking').select('*').order('nombre_area'),
       supabase.from('coworking_sessions').select('*').in('estado', ['activo', 'pendiente_pago'] as any),
       supabase.from('coworking_reservaciones').select('*').in('estado', ['pendiente', 'confirmada']).order('fecha_reserva'),
-      supabase.from('coworking_membresias' as any).select('*').in('estado', ['activa', 'pendiente_pago'] as any).order('fecha_fin', { ascending: true }),
+      supabase.from('coworking_membresias' as any)
+        .select('*, tarifas_coworking(nombre, tipo_cobro)')
+        .in('estado', ['activa', 'pendiente_pago'] as any)
+        .order('fecha_fin', { ascending: true }),
     ]);
     setAreas((areasRes.data as Area[]) ?? []);
     setSessions((sessionsRes.data as unknown as CoworkingSession[]) ?? []);
     setReservaciones((reservRes.data as Reservacion[]) ?? []);
-    setMembresias((membresiasRes.data as unknown as Membresia[]) ?? []);
+    setMembresias(
+      ((membresiasRes.data ?? []) as any[]).map((m) => ({
+        ...m,
+        tipo_cobro: m.tarifas_coworking?.tipo_cobro,
+        nombre_tarifa: m.tarifas_coworking?.nombre,
+      })) as unknown as Membresia[]
+    );
     setLoading(false);
   }, []);
 
