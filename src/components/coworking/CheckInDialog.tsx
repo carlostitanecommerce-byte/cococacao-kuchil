@@ -177,7 +177,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
 
       // Detect active monthly membership on this area for today
       const today = todayCDMX();
-      const activeMembership = membresias.find(m =>
+      const membershipByArea = membresias.find(m =>
         m.area_id === selectedAreaId &&
         m.estado === 'activa' &&
         m.fecha_inicio <= today &&
@@ -185,7 +185,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
       );
 
       // Third-party trying to check in on an area rented monthly → block
-      if (activeMembership && (!cliente || cliente.id !== activeMembership.cliente_id)) {
+      if (membershipByArea && (!cliente || cliente.id !== membershipByArea.cliente_id)) {
         toast({
           variant: 'destructive',
           title: 'Espacio reservado',
@@ -194,9 +194,12 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
         return;
       }
 
+      // Membresía utilizable del cliente (mensual aplicable a este área, o paquete de horas con saldo)
+      const utilizableMembership = isMembresiaAplicable ? clienteMembresia : null;
+
       // Private-area occupancy check only when there is NO active membership
       // (the holder should never be blocked by the availability=0 shortcut)
-      if (!activeMembership && selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
+      if (!membershipByArea && !utilizableMembership && selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
         toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
         return;
       }
