@@ -19,6 +19,8 @@ export interface Membresia {
   notas: string | null;
   created_at: string;
   updated_at: string;
+  tipo_cobro?: 'hora' | 'dia' | 'mes' | 'paquete_horas';
+  nombre_tarifa?: string;
 }
 
 export interface Area {
