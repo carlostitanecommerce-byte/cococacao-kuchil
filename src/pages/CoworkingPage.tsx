@@ -238,8 +238,24 @@ const CoworkingPage = () => {
           <ReservacionesTab areas={data.areas} reservaciones={data.reservaciones} membresias={data.membresias} getOccupancy={data.getOccupancy} getAvailablePax={data.getAvailablePax} onSuccess={data.fetchData} />
         </TabsContent>
 
-        <TabsContent value="directorio">
-          <DirectorioClientesTab />
+        <TabsContent value="clientes">
+          <Tabs defaultValue="directorio">
+            <TabsList>
+              <TabsTrigger value="directorio">Directorio</TabsTrigger>
+              <TabsTrigger value="membresias">Membresías</TabsTrigger>
+            </TabsList>
+            <TabsContent value="directorio" className="pt-4">
+              <DirectorioClientesTab />
+            </TabsContent>
+            <TabsContent value="membresias" className="pt-4">
+              <MembresiasDashboardTab
+                membresias={data.membresias}
+                areas={data.areas}
+                onSuccess={data.fetchData}
+                onRenew={handleOpenRenewDialog}
+              />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         {isAdmin && (
