@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Package } from 'lucide-react';
 import { ClienteSelector } from './ClienteSelector';
-import type { Area, Cliente } from './types';
+import type { Area, Cliente, Membresia } from './types';
 import type { CartItem } from '@/components/pos/types';
 import { todayCDMX } from '@/lib/utils';
 
@@ -29,6 +29,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   areas: Area[];
   onSuccess?: () => void | Promise<void>;
+  renewFrom?: Membresia | null;
 }
 
 function addMonths(iso: string, n: number): string {
