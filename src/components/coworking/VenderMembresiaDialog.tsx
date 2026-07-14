@@ -44,7 +44,7 @@ function addDays(iso: string, n: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess }: Props) {
+export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess, renewFrom }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -74,6 +74,29 @@ export function VenderMembresiaDialog({ open, onOpenChange, areas, onSuccess }: 
       setTarifas((data ?? []) as Tarifa[]);
     })();
   }, [open]);
+
+  // Pre-llenar desde renewFrom cuando se abre en modo renovación
+  useEffect(() => {
+    if (!open || !renewFrom) return;
+    (async () => {
+      const { data: cli } = await supabase
+        .from('clientes')
+        .select('id, nombre_completo, email, telefono')
+        .eq('id', renewFrom.cliente_id)
+        .maybeSingle();
+      if (cli) setCliente(cli as Cliente);
+      setTarifaId(renewFrom.tarifa_id);
+      setAreaId(renewFrom.area_id ?? '');
+      const today = todayCDMX();
+      const nextStart = renewFrom.fecha_fin && renewFrom.fecha_fin >= today
+        ? addDays(renewFrom.fecha_fin, 1)
+        : today;
+      setFechaInicio(nextStart);
+      if (renewFrom.tipo_cobro === 'paquete_horas') {
+        setHorasTotales(String(renewFrom.horas_totales ?? 0));
+      }
+    })();
+  }, [open, renewFrom]);
 
   useEffect(() => {
     if (!open) {
