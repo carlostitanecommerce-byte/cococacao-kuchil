@@ -1,60 +1,80 @@
-## Objetivo
+## Alcance
 
-Visualizar en `ReservationCalendar.tsx` las membresías mensuales activas como eventos de fondo (background) que cubran desde `fecha_inicio` hasta `fecha_fin`, para que el usuario vea claramente qué áreas privadas están rentadas por mes y no intente reservar sobre ellas. Incluye protecciones contra crash en `eventClick` y desfases de zona horaria.
+Solo la fase de **check-in**: detectar la membresía activa del cliente seleccionado, mostrar la alerta correspondiente (verde / ámbar / roja) y enlazarla a la sesión únicamente cuando aplique al área. El descuento de horas y el cobro de excedentes se resuelven en el flujo de **checkout** (fuera de este plan).
 
 ## Cambios
 
-### 1. `ReservationCalendar.tsx`
+### 1. `src/components/coworking/types.ts`
+Ampliar `Membresia` con dos campos derivados del join con `tarifas_coworking`:
 
-**a) Nueva prop**
-- Agregar `membresias: Membresia[]` (opcional) a `Props`.
-- Importar `Membresia` desde `./types`.
+- `tipo_cobro?: 'hora' | 'dia' | 'mes' | 'paquete_horas'`
+- `nombre_tarifa?: string`
 
-**b) Utilidad de fechas segura (evita desfases de zona horaria)**
-Definir dentro del archivo:
+### 2. `src/components/coworking/useCoworkingData.ts`
+Modificar la consulta de `coworking_membresias` para hacer join con la tarifa y así soportar tarifas desactivadas:
+
 ```ts
-function addDays(iso: string, n: number): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d + n));
-  return dt.toISOString().slice(0, 10);
-}
+supabase.from('coworking_membresias' as any)
+  .select('*, tarifas_coworking(nombre, tipo_cobro)')
+  .in('estado', ['activa', 'pendiente_pago'] as any)
+  .order('fecha_fin', { ascending: true }),
 ```
-Se usa para calcular el `end` exclusivo de los bloques de membresía. No se usa `new Date(fecha_fin)` con `setDate`.
 
-**c) Eventos de membresía**
-En el `useMemo` de `events`, concatenar un segundo arreglo generado desde `membresias`:
-- Filtrar por `estado === 'activa'` y `area_id` no nulo.
-- Aplicar el mismo filtro `filterAreaId` cuando no sea `'all'`.
-- Cada membresía produce:
-  - `start: m.fecha_inicio`
-  - `end: addDays(m.fecha_fin, 1)` (end exclusivo en all-day)
-  - `display: 'background'`
-  - `allDay: true`
-  - `backgroundColor`: color base del área desde `areaColorMap` (FullCalendar aplica la opacidad translúcida propia de los background events).
-  - `extendedProps: { membresia: m }` (sin `reservacion`).
-- No se define `title` visible: FullCalendar no renderiza texto sobre eventos `display: 'background'`. El bloque translúcido con el color del área es suficiente para comunicar "espacio bloqueado por renta mensual". No se añade `eventContent` ni se usa modo evento normal.
+Al mapear el resultado, enriquecer cada `Membresia` con `tipo_cobro: m.tarifas_coworking?.tipo_cobro` y `nombre_tarifa: m.tarifas_coworking?.nombre`. Sin cambios al realtime ni a los filtros de estado.
 
-**d) Fix crash en `eventClick`**
-Reemplazar el handler para ignorar eventos que no sean reservaciones:
-```ts
-eventClick={(info) => {
-  const reservacion = info.event.extendedProps.reservacion as Reservacion | undefined;
-  if (reservacion) {
-    onEventClick?.(reservacion);
-  }
-}}
-```
-Esto evita el crash `Cannot read 'id' of undefined` al clicar un bloque de membresía.
+### 3. `src/components/coworking/CheckInDialog.tsx`
 
-### 2. `ReservacionesTab.tsx`
-- Pasar `membresias` al `<ReservationCalendar />` (la prop ya llega al tab desde `CoworkingPage`).
+**Detección de membresía del cliente (`useMemo`):**
+Cuando `cliente` está seleccionado, buscar la primera `Membresia` que cumpla:
+- `cliente_id === cliente.id`
+- `estado === 'activa'`
+- `fecha_inicio <= todayCDMX() <= fecha_fin`
+
+La detección **ignora `area_id`**; la aplicabilidad se evalúa por separado.
+
+**Aplicabilidad al área seleccionada (`useMemo` adicional):**
+- `paquete_horas` → aplicable si `horas_disponibles > 0` (cualquier área).
+- `mes` → aplicable solo si `area_id === null` (acceso general) **o** `area_id === selectedAreaId`.
+- Cualquier otro tipo → no aplicable.
+
+Esto elimina la fuga en la que un cliente con mensual para Oficina A obtendría $0 en Oficina B.
+
+**Alertas debajo de `ClienteSelector`** (renderizadas solo si `clienteMembresia` existe):
+
+- **Mensual aplicable** (`area_id === null` o coincide): banner **verde**
+  `"Membresía Activa: Mensual — {nombre_tarifa}"`.
+- **Mensual para otra área**: banner **ámbar** (advertencia, no bloqueante)
+  `"El cliente tiene una membresía mensual para {nombre_area_membresía}. Si ingresa a esta área se cobrará tarifa regular."`. El nombre del área se resuelve desde el prop `areas`.
+- **Paquete de horas con saldo**: banner **verde**
+  `"Membresía Activa: Paquete de Horas (Saldo: {horas_disponibles} h)"`.
+- **Paquete de horas agotado**: banner **rojo** (`destructive`)
+  `"Membresía Agotada: El cliente no tiene horas disponibles en su paquete."`.
+
+Íconos: `CheckCircle2` (verde), `AlertTriangle` (ámbar), `AlertCircle` (rojo) de `lucide-react`.
+
+**Lógica de submit (`handleCheckIn`):**
+
+1. Mantener la detección existente `membershipByArea` (por `area_id === selectedAreaId`) para bloquear a terceros con el toast "Espacio reservado".
+2. Calcular `utilizableMembership = isMembresiaAplicable ? clienteMembresia : null`.
+3. Al insertar en `coworking_sessions`:
+   - `membresia_id = utilizableMembership?.id ?? membershipByArea?.id ?? null` (prioriza la del cliente).
+   - Si hay `utilizableMembership`: `tarifa_id = null` y `tarifa_snapshot = null` (cobro base cero; el cálculo vive en checkout).
+   - Si no: se conservan `selectedTarifaId` y el `tarifaSnapshot` actual.
+4. Amenities, validaciones de aforo privado, conflicto con reservaciones y KDS permanecen sin cambios.
 
 ## Fuera de alcance
-- No se cambian `getAvailablePax`, `conflictCheck`, ni la lógica de check-in.
-- No se agrega `cliente_nombre` al tipo `Membresia` ni a la query (`useCoworkingData` sin cambios).
-- No se modifica CSS de FullCalendar ni la leyenda.
-- No se implementa `eventContent` (los bloques de fondo van sin texto por diseño de FullCalendar).
+
+- Descuento automático de `horas_disponibles` al hacer checkout.
+- Cobro de excedentes cuando la sesión supera el saldo del paquete.
+- Cambios en `CheckoutDialog`, `QuickCheckInButton`, `ReservacionesTab`, o RPCs.
+- Migraciones a la base de datos.
 
 ## Verificación
+
 - `bunx tsgo --noEmit`.
-- Revisión visual con una membresía activa: aparece bloque translúcido en las vistas mes/semana/día en el rango correcto; clicar el bloque no rompe la UI; clicar reservaciones sigue funcionando.
+- Cliente con mensual para el área seleccionada (o `area_id=null`) → banner verde; se guarda `membresia_id` y `tarifa_id=null`.
+- Cliente con mensual para otra área → banner ámbar; check-in procede con tarifa regular (`membresia_id=null`, `tarifa_id`/`snapshot` normales).
+- Cliente con paquete de horas y saldo > 0 → banner verde con saldo; `membresia_id` enlazada, `tarifa_id=null`.
+- Cliente con paquete de horas y saldo 0 → banner rojo; check-in procede con tarifa regular.
+- Cliente sin membresía → sin banner; flujo actual.
+- Tarifa de la membresía desactivada → el banner sigue mostrando el nombre correcto gracias al join.

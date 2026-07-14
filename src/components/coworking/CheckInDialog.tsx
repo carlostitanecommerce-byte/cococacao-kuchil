@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -7,14 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-import { UserPlus, Gift } from 'lucide-react';
+import { UserPlus, Gift, CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Area, Membresia } from './types';
 import { dateToCDMX, todayCDMX } from '@/lib/utils';
 import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
 import { checkWalkInVsReservations } from './conflictCheck';
 import { ClienteSelector } from './ClienteSelector';
-import type { Cliente } from './types';
 
 interface Tarifa {
   id: string;
@@ -137,6 +136,32 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
     fetchData();
   }, [selectedTarifaId]);
 
+  // Detectar membresía activa del cliente seleccionado (ignora area_id)
+  const clienteMembresia = useMemo(() => {
+    if (!cliente) return null;
+    const today = todayCDMX();
+    return membresias.find(m =>
+      m.cliente_id === cliente.id &&
+      m.estado === 'activa' &&
+      m.fecha_inicio <= today &&
+      m.fecha_fin >= today
+    ) ?? null;
+  }, [cliente, membresias]);
+
+  // Determinar si la membresía detectada es aplicable al área seleccionada
+  const isMembresiaAplicable = useMemo(() => {
+    if (!clienteMembresia) return false;
+    if (clienteMembresia.tipo_cobro === 'paquete_horas') {
+      return (clienteMembresia.horas_disponibles ?? 0) > 0;
+    }
+    if (clienteMembresia.tipo_cobro === 'mes') {
+      return clienteMembresia.area_id === null || clienteMembresia.area_id === selectedAreaId;
+    }
+    return false;
+  }, [clienteMembresia, selectedAreaId]);
+
+
+
 
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,7 +177,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
 
       // Detect active monthly membership on this area for today
       const today = todayCDMX();
-      const activeMembership = membresias.find(m =>
+      const membershipByArea = membresias.find(m =>
         m.area_id === selectedAreaId &&
         m.estado === 'activa' &&
         m.fecha_inicio <= today &&
@@ -160,7 +185,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
       );
 
       // Third-party trying to check in on an area rented monthly → block
-      if (activeMembership && (!cliente || cliente.id !== activeMembership.cliente_id)) {
+      if (membershipByArea && (!cliente || cliente.id !== membershipByArea.cliente_id)) {
         toast({
           variant: 'destructive',
           title: 'Espacio reservado',
@@ -169,9 +194,12 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
         return;
       }
 
+      // Membresía utilizable del cliente (mensual aplicable a este área, o paquete de horas con saldo)
+      const utilizableMembership = isMembresiaAplicable ? clienteMembresia : null;
+
       // Private-area occupancy check only when there is NO active membership
       // (the holder should never be blocked by the availability=0 shortcut)
-      if (!activeMembership && selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
+      if (!membershipByArea && !utilizableMembership && selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
         toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
         return;
       }
@@ -224,9 +252,9 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
         fecha_fin_estimada: dateToCDMX(fechaFinEstimada),
         estado: 'activo',
         monto_acumulado: 0,
-        tarifa_id: selectedTarifaId || null,
-        tarifa_snapshot: tarifaSnapshot,
-        membresia_id: activeMembership?.id ?? null,
+        tarifa_id: utilizableMembership ? null : (selectedTarifaId || null),
+        tarifa_snapshot: utilizableMembership ? null : tarifaSnapshot,
+        membresia_id: utilizableMembership?.id ?? membershipByArea?.id ?? null,
       } as any).select('id').single();
 
       if (error || !sessionData) {
@@ -342,6 +370,40 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
               value={cliente}
               onChange={(c) => setCliente(c ? { id: c.id, nombre_completo: c.nombre_completo } : null)}
             />
+            {cliente && clienteMembresia && (
+              <div className="mt-2 space-y-2">
+                {clienteMembresia.tipo_cobro === 'mes' && (
+                  (clienteMembresia.area_id === null || clienteMembresia.area_id === selectedAreaId) ? (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      <span><strong>Membresía Activa:</strong> Mensual — {clienteMembresia.nombre_tarifa ?? 'Tarifa mensual'}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>
+                        El cliente tiene una membresía mensual para{' '}
+                        <strong>{areas.find(a => a.id === clienteMembresia.area_id)?.nombre_area || 'otra área'}</strong>.
+                        {' '}Si ingresa a esta área se cobrará tarifa regular.
+                      </span>
+                    </div>
+                  )
+                )}
+                {clienteMembresia.tipo_cobro === 'paquete_horas' && (
+                  (clienteMembresia.horas_disponibles ?? 0) > 0 ? (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      <span><strong>Membresía Activa:</strong> Paquete de Horas (Saldo: {clienteMembresia.horas_disponibles} h)</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-destructive/15 text-destructive border border-destructive/20">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      <span><strong>Membresía Agotada:</strong> El cliente no tiene horas disponibles en su paquete.</span>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label>Área</Label>
