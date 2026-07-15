@@ -87,7 +87,7 @@ export default function MenuTab() {
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
     try {
-      const [productosRes, ventasRes, upsellsRes] = await Promise.all([
+      const [productosRes, ventasRes, upsellsRes, componentesRes] = await Promise.all([
         supabase
           .from('productos')
           .select('id, nombre, categoria, precio_venta, costo_total, activo, tipo')
@@ -113,17 +113,31 @@ export default function MenuTab() {
           .eq('tipo_concepto', 'producto')
           .limit(UPSELLS_LIMIT)
           .abortSignal(signal),
+        supabase
+          .from('paquete_componentes')
+          .select('paquete_id, producto_id, cantidad')
+          .abortSignal(signal),
       ]);
 
       if (signal.aborted) return;
       if (productosRes.error) throw productosRes.error;
       if (ventasRes.error) throw ventasRes.error;
       if (upsellsRes.error) throw upsellsRes.error;
+      if (componentesRes.error) throw componentesRes.error;
 
       const productos = productosRes.data ?? [];
       const ventaIds = (ventasRes.data ?? []).map(v => v.id);
       const upsellSet = new Set((upsellsRes.data ?? []).map((r: any) => r.producto_id).filter(Boolean));
       let localTruncated = ventaIds.length >= VENTAS_LIMIT;
+
+      const componentes = componentesRes.data ?? [];
+      const compMap = new Map<string, { producto_id: string; cantidad: number }[]>();
+      for (const c of componentes) {
+        if (!compMap.has(c.paquete_id)) {
+          compMap.set(c.paquete_id, []);
+        }
+        compMap.get(c.paquete_id)!.push(c);
+      }
 
       const salesMap: Record<string, number> = {};
       for (let i = 0; i < ventaIds.length; i += 100) {
@@ -131,7 +145,7 @@ export default function MenuTab() {
         const batch = ventaIds.slice(i, i + 100);
         const { data, error } = await supabase
           .from('detalle_ventas')
-          .select('producto_id, paquete_id, cantidad, tipo_concepto')
+          .select('venta_id, producto_id, paquete_id, cantidad, tipo_concepto')
           .in('venta_id', batch)
           // Solo ventas reales del menú: excluimos 'amenity' (cortesía incluida
           // en la tarifa, ingreso $0) y 'coworking' (renta de espacio).
@@ -141,10 +155,39 @@ export default function MenuTab() {
         if (error) throw error;
         const rows = data ?? [];
         if (rows.length >= DETALLES_LIMIT) localTruncated = true;
-        rows.forEach((d: any) => {
-          // Atribuir al paquete maestro si aplica.
-          const id = d.paquete_id ?? d.producto_id;
-          if (id) salesMap[id] = (salesMap[id] || 0) + d.cantidad;
+
+        // Agrupar filas por venta_id para procesar paquetes atómicamente por venta
+        const detallesPorVenta: Record<string, any[]> = {};
+        rows.forEach((r: any) => {
+          if (r.venta_id) {
+            (detallesPorVenta[r.venta_id] ||= []).push(r);
+          }
+        });
+
+        Object.values(detallesPorVenta).forEach((lineas) => {
+          const paquetesVistosEnVenta = new Set<string>();
+
+          lineas.forEach((d: any) => {
+            if (d.paquete_id) {
+              if (d.producto_id === null) {
+                // Fila del paquete directo del coworking: d.cantidad es la cantidad del paquete
+                salesMap[d.paquete_id] = (salesMap[d.paquete_id] || 0) + d.cantidad;
+              } else {
+                // Componente del paquete expandido del POS: calcular cantidad del paquete a partir del factor
+                if (!paquetesVistosEnVenta.has(d.paquete_id)) {
+                  paquetesVistosEnVenta.add(d.paquete_id);
+                  const comps = compMap.get(d.paquete_id) || [];
+                  const compDef = comps.find(c => c.producto_id === d.producto_id);
+                  const factor = compDef && compDef.cantidad > 0 ? compDef.cantidad : 1;
+                  const paqueteQty = Math.round(d.cantidad / factor);
+                  salesMap[d.paquete_id] = (salesMap[d.paquete_id] || 0) + paqueteQty;
+                }
+              }
+            } else if (d.producto_id) {
+              // Producto simple
+              salesMap[d.producto_id] = (salesMap[d.producto_id] || 0) + d.cantidad;
+            }
+          });
         });
       }
 

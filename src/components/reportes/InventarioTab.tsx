@@ -168,6 +168,7 @@ export default function InventarioTab() {
           if (componentes) {
             for (const d of allDetalles) {
               if (!d.paquete_id) continue;
+              if (d.producto_id !== null) continue; // Evitar expandir componentes ya contados individualmente por producto_id
               const comps = componentes.filter(c => c.paquete_id === d.paquete_id);
               for (const c of comps) {
                 productoCantidad.set(c.producto_id, (productoCantidad.get(c.producto_id) ?? 0) + c.cantidad * d.cantidad);
@@ -208,6 +209,7 @@ export default function InventarioTab() {
           if (componentes) {
             for (const u of upsellsData) {
               if (!u.paquete_id) continue;
+              if (u.producto_id !== null) continue; // Evitar expandir componentes ya contados individualmente por producto_id
               const comps = componentes.filter(c => c.paquete_id === u.paquete_id);
               for (const c of comps) {
                 productoCantidad.set(c.producto_id, (productoCantidad.get(c.producto_id) ?? 0) + c.cantidad * (u.cantidad ?? 0));
@@ -241,7 +243,7 @@ export default function InventarioTab() {
       const merQ = supabase
         .from('mermas')
         .select('insumo_id, cantidad')
-        .gt('fecha', desde)
+        .gt('fecha_descuento', desde)
         .limit(LIM_MERMAS);
       const { data: mermasData, error: merErr } = await (signal ? merQ.abortSignal(signal) : merQ);
       if (merErr) throw merErr;

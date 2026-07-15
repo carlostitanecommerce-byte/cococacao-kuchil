@@ -251,7 +251,7 @@ export default function GeneralTab() {
         if (ins) costo += r.cantidad_necesaria * factor * ins.costo_unitario;
       });
     };
-    if (d.paquete_id) {
+    if (d.paquete_id && d.producto_id === null) {
       const comps = componentesPorPaquete[d.paquete_id] || [];
       comps.forEach(c => acumulaProducto(c.producto_id, c.cantidad * d.cantidad));
     } else if (d.producto_id) {

@@ -290,16 +290,10 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       lineas_aumentadas: number;
       lineas_reducidas: number;
       lineas_eliminadas: number;
+      kds_folio: number | null;
     };
 
-    let kdsFolio: number | null = null;
-    if (result.increments && result.increments.length > 0) {
-      const kdsRes = await enviarASesionKDS({
-        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
-        items: result.increments.map(d => ({ ...d, isAmenity: true })),
-      });
-      kdsFolio = kdsRes.folio;
-    }
+    const kdsFolio = result.kds_folio ?? null;
 
     const partes: string[] = [];
     if (result.lineas_aumentadas > 0) partes.push(`${result.lineas_aumentadas} aumento(s)`);
