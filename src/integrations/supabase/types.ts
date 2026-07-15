@@ -1583,6 +1583,17 @@ export type Database = {
         }
         Returns: Json
       }
+      cancelar_venta_completa: {
+        Args: {
+          p_accion_override?: string
+          p_caja_folio?: number
+          p_motivo: string
+          p_post_cierre?: boolean
+          p_solicitud_id?: string
+          p_venta_id: string
+        }
+        Returns: Json
+      }
       cerrar_caja: {
         Args: {
           p_caja_id: string
