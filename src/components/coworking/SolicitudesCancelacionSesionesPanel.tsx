@@ -152,11 +152,14 @@ export function SolicitudesCancelacionSesionesPanel({ onSessionCancelled }: Prop
     // Pre-marcar lo que el operador declaró entregar
     const declarados = new Map<string, number>();
     for (const it of solicitud.items_entregados ?? []) {
-      declarados.set(it.producto_id, (declarados.get(it.producto_id) ?? 0) + it.cantidad);
+      const key = it.id || it.producto_id;
+      if (key) {
+        declarados.set(key, (declarados.get(key) ?? 0) + it.cantidad);
+      }
     }
     const initial: Record<string, EntregaState> = {};
     for (const r of rows) {
-      const declCant = declarados.get(r.producto_id) ?? 0;
+      const declCant = declarados.get(r.id) ?? (r.producto_id ? (declarados.get(r.producto_id) ?? 0) : 0);
       initial[r.id] = {
         entregado: declCant > 0,
         cantidad: declCant > 0 ? Math.min(declCant, r.cantidad) : r.cantidad,
@@ -179,7 +182,13 @@ export function SolicitudesCancelacionSesionesPanel({ onSessionCancelled }: Prop
       if (!st || !st.entregado) continue;
       const cant = Math.max(0, Math.min(st.cantidad, u.cantidad));
       if (cant <= 0) continue;
-      list.push({ producto_id: u.producto_id, nombre: u.nombre, cantidad: cant });
+      list.push({
+        id: u.id,
+        producto_id: u.producto_id,
+        paquete_id: u.paquete_id,
+        nombre: u.nombre,
+        cantidad: cant,
+      });
     }
     return list;
   };

@@ -2,7 +2,8 @@ import { supabase } from '@/integrations/supabase/client';
 
 export interface SessionUpsellRow {
   id: string;
-  producto_id: string;
+  producto_id: string | null;
+  paquete_id: string | null;
   precio_especial: number;
   cantidad: number;
   nombre: string;
@@ -18,7 +19,7 @@ export async function fetchSessionUpsellsForCancel(
 ): Promise<SessionUpsellRow[]> {
   const { data, error } = await supabase
     .from('detalle_ventas')
-    .select('id, producto_id, precio_unitario, cantidad, tipo_concepto, productos:producto_id(nombre)')
+    .select('id, producto_id, paquete_id, paquete_nombre, precio_unitario, cantidad, tipo_concepto, productos:producto_id(nombre)')
     .eq('coworking_session_id', sessionId)
     .is('venta_id', null)
     .order('created_at', { ascending: true });
@@ -28,15 +29,18 @@ export async function fetchSessionUpsellsForCancel(
   return (data as any[]).map(u => ({
     id: u.id,
     producto_id: u.producto_id,
+    paquete_id: u.paquete_id,
     precio_especial: Number(u.precio_unitario) || 0,
     cantidad: u.cantidad,
-    nombre: u.productos?.nombre ?? 'Producto',
+    nombre: u.paquete_nombre || u.productos?.nombre || 'Producto',
     isAmenity: u.tipo_concepto === 'amenity' || Number(u.precio_unitario) === 0,
   }));
 }
 
 export interface EntregaItem {
-  producto_id: string;
+  id: string;
+  producto_id: string | null;
+  paquete_id: string | null;
   nombre: string;
   cantidad: number;
 }

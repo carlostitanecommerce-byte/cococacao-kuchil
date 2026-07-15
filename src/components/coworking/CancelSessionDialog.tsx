@@ -97,7 +97,13 @@ export function CancelSessionDialog({ session, isAdmin, onClose, onSuccess }: Pr
       if (!st || !st.entregado) continue;
       const cant = Math.max(0, Math.min(st.cantidad, u.cantidad));
       if (cant <= 0) continue;
-      list.push({ producto_id: u.producto_id, nombre: u.nombre, cantidad: cant });
+      list.push({
+        id: u.id,
+        producto_id: u.producto_id,
+        paquete_id: u.paquete_id,
+        nombre: u.nombre,
+        cantidad: cant,
+      });
     }
     return list;
   };

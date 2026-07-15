@@ -6,15 +6,21 @@
 -- Pero el stock ya fue descontado cuando se registraron esos productos via
 -- registrar_consumo_coworking o registrar_amenity_sesion.
 --
--- FIX: Los productos entregados ya tienen su stock descontado. Al cancelar,
--- debemos REINTEGRAR el stock de los productos NO entregados (los que se borraron
--- del detalle) y registrar merma para los entregados (sin tocar stock adicional).
+-- ADEMÁS: Los paquetes cargados a cuenta tienen producto_id = NULL y paquete_id set.
+-- El código anterior filtraba por producto_id IS NOT NULL, lo que ignoraba paquetes
+-- y causaba fugas de inventario permanentes.
+--
+-- FIX:
+-- 1. Los entregados (tanto simples como paquetes) solo registran merma (ya se descontó su stock).
+--    Para paquetes, registramos mermas de sus componentes de forma proporcional.
+-- 2. Los no entregados reintegran su stock. Si se entregó de forma parcial, reintegramos
+--    el stock de la cantidad restante.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.cancelar_sesion_coworking(
   p_session_id uuid,
   p_motivo text,
-  p_entregados jsonb,         -- [{producto_id, nombre, cantidad}]
+  p_entregados jsonb,         -- [{id, producto_id, paquete_id, nombre, cantidad}]
   p_solicitud_id uuid DEFAULT NULL,
   p_is_admin boolean DEFAULT false
 )
@@ -35,9 +41,9 @@ DECLARE
   v_descripcion_audit text;
   v_solicitante_id uuid;
   v_dv RECORD;
-  v_entregado_pids jsonb := '[]'::jsonb;
-  v_producto_entregado boolean;
   v_comp RECORD;
+  v_delivered_qty numeric;
+  v_cant_reintegrar numeric;
 BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'No autenticado' USING ERRCODE = '28000';
@@ -62,64 +68,91 @@ BEGIN
     END IF;
   END IF;
 
-  -- Construir set de producto_ids entregados para búsqueda rápida
-  FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(p_entregados, '[]'::jsonb))
-  LOOP
-    v_total_entregados := v_total_entregados + 1;
-    v_entregado_pids := v_entregado_pids || jsonb_build_array(v_item->>'producto_id');
-  END LOOP;
-
   -- 1) Para ENTREGADOS: solo registrar merma (NO descontar stock — ya fue descontado)
   FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(p_entregados, '[]'::jsonb))
   LOOP
-    FOR v_receta IN
-      SELECT r.insumo_id, r.cantidad_necesaria, i.nombre AS insumo_nombre
-      FROM public.recetas r
-      JOIN public.insumos i ON i.id = r.insumo_id
-      WHERE r.producto_id = (v_item->>'producto_id')::uuid
-    LOOP
-      v_cant_descontar := v_receta.cantidad_necesaria * (v_item->>'cantidad')::numeric;
-      IF v_cant_descontar <= 0 THEN CONTINUE; END IF;
+    v_total_entregados := v_total_entregados + 1;
+    
+    -- Si es un paquete, registrar mermas para todos sus componentes
+    IF NULLIF(v_item->>'paquete_id', '') IS NOT NULL THEN
+      FOR v_comp IN
+        SELECT producto_id AS pid, cantidad AS qty
+        FROM public.paquete_componentes
+        WHERE paquete_id = (v_item->>'paquete_id')::uuid
+      LOOP
+        FOR v_receta IN
+          SELECT r.insumo_id, r.cantidad_necesaria
+          FROM public.recetas r
+          WHERE r.producto_id = v_comp.pid
+        LOOP
+          v_cant_descontar := v_receta.cantidad_necesaria * v_comp.qty * (v_item->>'cantidad')::numeric;
+          IF v_cant_descontar <= 0 THEN CONTINUE; END IF;
 
-      -- Solo merma de registro — el stock YA refleja el descuento
-      INSERT INTO public.mermas (insumo_id, cantidad, motivo, usuario_id)
-      VALUES (
-        v_receta.insumo_id,
-        v_cant_descontar,
-        format('Entrega en sesión cancelada — %s (%s ×%s)',
-               v_session.cliente_nombre,
-               COALESCE(v_item->>'nombre', 'producto'),
-               v_item->>'cantidad'),
-        v_user_id
-      );
-      v_mermas_creadas := v_mermas_creadas + 1;
-    END LOOP;
+          -- Registrar merma sin descontar stock
+          INSERT INTO public.mermas (insumo_id, cantidad, motivo, usuario_id)
+          VALUES (
+            v_receta.insumo_id,
+            v_cant_descontar,
+            format('Entrega paquete en sesión cancelada — %s (%s · %s ×%s)',
+                   v_session.cliente_nombre,
+                   COALESCE(v_item->>'nombre', 'paquete'),
+                   (SELECT nombre FROM public.productos WHERE id = v_comp.pid),
+                   (v_item->>'cantidad')),
+            v_user_id
+          );
+          v_mermas_creadas := v_mermas_creadas + 1;
+        END LOOP;
+      END LOOP;
+    ELSIF NULLIF(v_item->>'producto_id', '') IS NOT NULL THEN
+      -- Si es un producto simple, registrar merma
+      FOR v_receta IN
+        SELECT r.insumo_id, r.cantidad_necesaria
+        FROM public.recetas r
+        WHERE r.producto_id = (v_item->>'producto_id')::uuid
+      LOOP
+        v_cant_descontar := v_receta.cantidad_necesaria * (v_item->>'cantidad')::numeric;
+        IF v_cant_descontar <= 0 THEN CONTINUE; END IF;
+
+        -- Registrar merma sin descontar stock
+        INSERT INTO public.mermas (insumo_id, cantidad, motivo, usuario_id)
+        VALUES (
+          v_receta.insumo_id,
+          v_cant_descontar,
+          format('Entrega en sesión cancelada — %s (%s ×%s)',
+                 v_session.cliente_nombre,
+                 COALESCE(v_item->>'nombre', 'producto'),
+                 v_item->>'cantidad'),
+          v_user_id
+        );
+        v_mermas_creadas := v_mermas_creadas + 1;
+      END LOOP;
+    END IF;
   END LOOP;
 
   -- 2) Para NO entregados: reintegrar stock (estos se borraron/cancelaron sin entregar)
-  -- Revisar cada detalle de venta abierto de la sesión
+  -- Revisar cada detalle de venta abierto de la sesión (incluye paquetes con producto_id = NULL)
   FOR v_dv IN
     SELECT id, producto_id, cantidad, paquete_id, tipo_concepto
     FROM public.detalle_ventas
     WHERE coworking_session_id = p_session_id
       AND venta_id IS NULL
-      AND producto_id IS NOT NULL
-    ORDER BY producto_id
+    ORDER BY id
   LOOP
-    -- Verificar si este producto fue marcado como entregado
-    v_producto_entregado := false;
+    -- Buscar cantidad entregada para esta línea
+    v_delivered_qty := 0;
     FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(p_entregados, '[]'::jsonb))
     LOOP
-      IF (v_item->>'producto_id')::uuid = v_dv.producto_id THEN
-        v_producto_entregado := true;
+      IF NULLIF(v_item->>'id', '') = v_dv.id::text THEN
+        v_delivered_qty := (v_item->>'cantidad')::numeric;
         EXIT;
       END IF;
     END LOOP;
 
-    -- Si NO fue entregado, reintegrar su stock
-    IF NOT v_producto_entregado THEN
+    v_cant_reintegrar := v_dv.cantidad - v_delivered_qty;
+
+    IF v_cant_reintegrar > 0 THEN
       IF v_dv.paquete_id IS NOT NULL THEN
-        -- Paquete: reintegrar por componentes
+        -- Paquete: reintegrar stock de componentes
         FOR v_comp IN
           SELECT producto_id AS pid, cantidad AS qty
           FROM public.paquete_componentes
@@ -133,13 +166,13 @@ BEGIN
             ORDER BY r.insumo_id
           LOOP
             UPDATE public.insumos
-            SET stock_actual = stock_actual + (v_receta.cantidad_necesaria * v_comp.qty * v_dv.cantidad)
+            SET stock_actual = stock_actual + (v_receta.cantidad_necesaria * v_comp.qty * v_cant_reintegrar)
             WHERE id = v_receta.insumo_id;
             v_stock_reintegrado := v_stock_reintegrado + 1;
           END LOOP;
         END LOOP;
-      ELSE
-        -- Producto simple: reintegrar por receta
+      ELSIF v_dv.producto_id IS NOT NULL THEN
+        -- Producto simple: reintegrar stock
         FOR v_receta IN
           SELECT r.insumo_id, r.cantidad_necesaria
           FROM public.recetas r
@@ -147,7 +180,7 @@ BEGIN
           ORDER BY r.insumo_id
         LOOP
           UPDATE public.insumos
-          SET stock_actual = stock_actual + (v_receta.cantidad_necesaria * v_dv.cantidad)
+          SET stock_actual = stock_actual + (v_receta.cantidad_necesaria * v_cant_reintegrar)
           WHERE id = v_receta.insumo_id;
           v_stock_reintegrado := v_stock_reintegrado + 1;
         END LOOP;

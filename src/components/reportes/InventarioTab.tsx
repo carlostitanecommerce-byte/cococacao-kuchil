@@ -180,7 +180,7 @@ export default function InventarioTab() {
       // 2) Consumos coworking (amenities/upsells/extras) en detalle_ventas con venta_id NULL
       const upsQ = supabase
         .from('detalle_ventas')
-        .select('producto_id, cantidad, created_at')
+        .select('producto_id, paquete_id, cantidad, created_at')
         .gt('created_at', desde)
         .is('venta_id', null)
         .not('coworking_session_id', 'is', null)
@@ -192,8 +192,28 @@ export default function InventarioTab() {
 
       if (upsellsData) {
         for (const u of (upsellsData as any[])) {
-          if (!u.producto_id) continue;
-          productoCantidad.set(u.producto_id, (productoCantidad.get(u.producto_id) ?? 0) + (u.cantidad ?? 0));
+          if (u.producto_id) {
+            productoCantidad.set(u.producto_id, (productoCantidad.get(u.producto_id) ?? 0) + (u.cantidad ?? 0));
+          }
+        }
+
+        const upsellPaqueteIds = [...new Set(upsellsData.filter(u => u.paquete_id).map(u => u.paquete_id!))];
+        if (upsellPaqueteIds.length > 0) {
+          const compQ = supabase
+            .from('paquete_componentes')
+            .select('paquete_id, producto_id, cantidad')
+            .in('paquete_id', upsellPaqueteIds);
+          const { data: componentes, error: compErr } = await (signal ? compQ.abortSignal(signal) : compQ);
+          if (compErr) throw compErr;
+          if (componentes) {
+            for (const u of upsellsData) {
+              if (!u.paquete_id) continue;
+              const comps = componentes.filter(c => c.paquete_id === u.paquete_id);
+              for (const c of comps) {
+                productoCantidad.set(c.producto_id, (productoCantidad.get(c.producto_id) ?? 0) + c.cantidad * (u.cantidad ?? 0));
+              }
+            }
+          }
         }
       }
 
