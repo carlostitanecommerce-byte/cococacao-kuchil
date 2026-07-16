@@ -1,53 +1,47 @@
+## Objetivo
 
-# Limpieza de datos de prueba — Caja del 13 de julio 20:30 CDMX en adelante
+Cerrar la solicitud huérfana del 18-jun 19:08 (salida $1,000 "Pago de impresora", caja #28) marcándola como **aprobada** y registrando el movimiento de caja real, sin tocar código ni el cierre histórico de la caja.
 
-Corte: **2026-07-14 02:30:00 UTC** (= 13-jul 20:30 CDMX).
+## Cambios en la base de datos
 
-## Alcance detectado
+Todo se hace con la herramienta de datos (`INSERT` + `UPDATE`), en una sola operación transaccional:
 
-Todo se creó bajo la caja **folio #68** (abierta 20:30 CDMX, cerrada 21:40 CDMX):
+### 1. Insertar el movimiento en `movimientos_caja`
 
-| Tabla | Registros | Notas |
-|---|---|---|
-| `ventas` | 6 (folios #870–#875, todas `completada`) | montos: 3190, 4400, 130, 4400, 9360, 3190 |
-| `detalle_ventas` | 7 (líneas de esas ventas) | |
-| `coworking_sessions` | 2 ("Prueba 2" cancelada, "Abril Valdez" finalizada) | |
-| `coworking_membresias` | 8 (varias activas / pendiente_pago / cancelada) | |
-| `ordenes_pos_pendientes` | 8 (folios 735–742: cobradas, canceladas y pendientes) | |
-| `clientes` | 3 ("Prueba 2", "Prueba 3", "Prueba 4") | |
-| `cajas` | 1 (folio #68, cerrada) | |
-| `audit_logs` | 36 eventos ligados a la caja de prueba | |
-| `movimientos_caja`, `kds_*`, `solicitudes_*`, `mermas`, `compras_insumos`, `cancelaciones_items_sesion`, `coworking_reservaciones` | 0 | Sin registros |
-
-## Restauración de inventario
-
-Las 5 ventas `completada` no canceladas descontaron stock de insumos vía sus recetas. Antes de borrarlas, se ejecutará `revertir_stock_venta(venta_id)` para cada una — así el stock queda como estaba antes de las 20:30. (La venta de folio #872 corresponde al cargo de coworking, también se revierte.)
-
-## Orden de borrado (una sola migración transaccional)
-
-Se ejecutará en un único bloque para respetar FKs:
-
-```text
-1. Para cada venta completada en rango: SELECT revertir_stock_venta(id)
-2. DELETE detalle_ventas WHERE created_at >= corte
-3. DELETE ventas WHERE created_at >= corte
-4. DELETE coworking_sessions WHERE created_at >= corte
-5. DELETE coworking_membresias WHERE created_at >= corte
-6. DELETE ordenes_pos_pendientes WHERE created_at >= corte
-7. DELETE clientes WHERE created_at >= corte  (los 3 "Prueba N")
-8. DELETE cajas WHERE id = folio #68
-9. DELETE audit_logs WHERE created_at >= corte
+```sql
+INSERT INTO movimientos_caja (
+  id, caja_id, usuario_id, tipo, monto, motivo, created_at
+) VALUES (
+  gen_random_uuid(),
+  '1d1a6473-20ae-4cf7-9be5-2ad9e059f1a2',  -- caja #28
+  '9b17e836-c319-4b39-8bdf-d9bc761ae746',  -- solicitante = quien aprueba (único disponible)
+  'salida',
+  1000,
+  'Pago de impresora',
+  '2026-06-18 19:08:20.864378+00'          -- misma hora de la solicitud
+)
+RETURNING id;
 ```
 
-Se usará una migración (porque `DELETE` no está permitido con la herramienta de inserción sobre múltiples tablas ligadas; la migración corre en transacción y hace rollback si algo falla).
+### 2. Actualizar la solicitud a `aprobada` y vincular el movimiento
 
-## Detalles técnicos
+```sql
+UPDATE solicitudes_movimiento_caja
+SET estado = 'aprobada',
+    revisado_por = '9b17e836-c319-4b39-8bdf-d9bc761ae746',
+    movimiento_id = <id devuelto por el INSERT anterior>,
+    updated_at = now()
+WHERE id = '43475983-6c00-4f97-b5f0-3b520514190b';
+```
 
-- Los folios (`ventas_folio_seq`, `cajas_folio_seq`, `ordenes_pos_pendientes_folio_seq`) **no se reinician**: la próxima venta seguirá con el folio siguiente. Reiniciarlos rompería auditoría histórica.
-- Los `audit_logs` en el rango también se eliminan (son de las pruebas). Si prefieres conservarlos como registro histórico de "sesión de pruebas", avísame.
-- Ningún `movimiento_caja` fue registrado en la caja #68, así que su eliminación no arrastra otros datos.
-- La caja actualmente **está cerrada**, por lo que borrarla no afecta operaciones en curso.
+## Consideraciones
 
-## Confirmación requerida
+- **La caja #28 ya está cerrada** con `monto_cierre = 715`, `diferencia = -985`. Estos valores NO se modifican — quedan como quedaron el día del cierre. El movimiento nuevo solo queda como registro histórico/auditable.
+- El `usuario_id` del movimiento se pone como el solicitante (único usuario conocido en el contexto). Si prefieres otro aprobador, se ajusta antes de ejecutar.
+- No hay cambios de esquema, ni migraciones, ni cambios de código.
 
-¿Procedo con el borrado completo incluyendo la restauración de stock? Si quieres conservar los `audit_logs` de la sesión, dímelo y los excluyo.
+## Resultado esperado
+
+- La solicitud desaparece del panel "pendientes" de Caja.
+- Aparece un movimiento de salida de $1,000 con fecha 18-jun 19:08 en la bitácora/movimientos de la caja #28.
+- El cierre histórico de la caja #28 permanece intacto.
