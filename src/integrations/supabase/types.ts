@@ -741,6 +741,7 @@ export type Database = {
           cantidad: number
           created_at: string
           fecha: string
+          fecha_descuento: string
           id: string
           insumo_id: string
           motivo: string
@@ -750,6 +751,7 @@ export type Database = {
           cantidad?: number
           created_at?: string
           fecha?: string
+          fecha_descuento?: string
           id?: string
           insumo_id: string
           motivo: string
@@ -759,6 +761,7 @@ export type Database = {
           cantidad?: number
           created_at?: string
           fecha?: string
+          fecha_descuento?: string
           id?: string
           insumo_id?: string
           motivo?: string
