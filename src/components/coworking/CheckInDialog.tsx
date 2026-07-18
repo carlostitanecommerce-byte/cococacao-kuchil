@@ -549,8 +549,9 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
           </div>
           <Button type="submit" className="w-full" disabled={
             creating || !selectedAreaId || !cliente ||
-            (!(utilizableMembership ?? membershipByArea) && applicableTarifas.length > 0 && !selectedTarifaId)
+            (!isMembresiaAplicable && applicableTarifas.length > 0 && !selectedTarifaId)
           }>
+
             {creating ? 'Registrando...' : 'Confirmar Entrada'}
           </Button>
         </form>
