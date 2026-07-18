@@ -1,0 +1,362 @@
+# Plan de corrección: "Sesión sin tarifa congelada" en Caja
+
+**Contexto operativo asumido (confirmado por el usuario):** el mismo usuario (rol `recepcion` o `caja`) hace check-in y checkout. Aun así, el saneo se hace vía RPC `SECURITY DEFINER` y **no** con un `UPDATE` directo desde el cliente, porque en cambios de turno el usuario que cobra puede no ser el que hizo el check-in, y la política RLS `auth.uid() = usuario_id OR admin` ([migración 20260628223840:44](cococacao-kuchil/supabase/migrations/20260628223840_7986edb5-e668-42b6-a053-fc4f29f87b46.sql:44)) haría fallar el `UPDATE` en silencio. El RPC elimina esa ambigüedad de forma determinística.
+
+## Estructura del snapshot (contrato exacto, no modificar campos)
+
+`doImport` lee **exactamente** estos campos ([CoworkingSessionSelector.tsx:172-182](cococacao-kuchil/src/components/caja/CoworkingSessionSelector.tsx:172)): `nombre`, `precio_base`, `tipo_cobro`, `metodo_fraccion`, `minutos_tolerancia`, `horas_cubiertas` (solo si `tipo_cobro='membresia_paquete'`). Las RPC de amenities leen `tarifa_snapshot->'amenities'` ([20260522022024:288](cococacao-kuchil/supabase/migrations/20260522022024_249cbee1-0082-4de6-93cd-dccefc6df2dd.sql:288)).
+
+**Un snapshot reconstruido tendrá esta forma JSON literal y ninguna otra:**
+
+```json
+{
+  "nombre": "<nombre reconstruido>",
+  "precio_base": <numeric>,
+  "tipo_cobro": "hora",
+  "metodo_fraccion": "15_min",
+  "minutos_tolerancia": 0,
+  "amenities": [],
+  "upsells_disponibles": [],
+  "reconstruido": true,
+  "origen": "tarifa_id" | "area_fallback",
+  "snapshot_at": "<timestamp ISO>"
+}
+```
+
+Reglas fijas: amenities siempre `[]` (una sesión rota nunca registró amenities, porque en check-in los amenities dependen de una tarifa seleccionada — [CheckInDialog:287](cococacao-kuchil/src/components/coworking/CheckInDialog.tsx:287)). `tipo_cobro` del fallback siempre `"hora"`. `metodo_fraccion` siempre `"15_min"`. `minutos_tolerancia` siempre `0`.
+
+---
+
+## PARTE 1 — Prevención upstream (evita nuevas sesiones rotas)
+
+### 1.1 [MODIFY] [CheckInDialog.tsx](cococacao-kuchil/src/components/coworking/CheckInDialog.tsx)
+
+Hacer la tarifa obligatoria cuando el área tiene tarifas aplicables y no hay membresía activa.
+
+**Condición de bloqueo (determinística):** existe una sesión que requiere tarifa si y solo si:
+```
+activeMem === null  &&  applicableTarifas.length > 0  &&  selectedTarifaId === ''
+```
+Donde `activeMem = utilizableMembership ?? membershipByArea` ([línea 237](cococacao-kuchil/src/components/coworking/CheckInDialog.tsx:237)).
+
+**Cambio A** — en el handler de submit, inmediatamente después del bloque de validación de reservaciones ([línea 225](cococacao-kuchil/src/components/coworking/CheckInDialog.tsx:225)) y **antes** de `const fechaInicio = new Date();` ([línea 227](cococacao-kuchil/src/components/coworking/CheckInDialog.tsx:227)), insertar:
+
+```typescript
+const activeMemCheck = utilizableMembership ?? membershipByArea;
+if (!activeMemCheck && applicableTarifas.length > 0 && !selectedTarifaId) {
+  toast({
+    variant: 'destructive',
+    title: 'Selecciona una tarifa',
+    description: 'Debes elegir una tarifa antes de registrar la entrada.',
+  });
+  return;
+}
+```
+
+**Cambio B** — en el botón de submit ([línea 540](cococacao-kuchil/src/components/coworking/CheckInDialog.tsx:540)), añadir la misma condición al `disabled`. Reemplazar:
+```typescript
+disabled={creating || !selectedAreaId || !cliente}
+```
+por:
+```typescript
+disabled={
+  creating || !selectedAreaId || !cliente ||
+  (!(utilizableMembership ?? membershipByArea) && applicableTarifas.length > 0 && !selectedTarifaId)
+}
+```
+
+**No** se toca el caso `applicableTarifas.length === 0`: si un área no tiene ninguna tarifa configurada, el check-in procede con snapshot null y se sanea después (Parte 2/4). Eso es intencional y cubierto.
+
+### 1.2 [MODIFY] [QuickCheckInButton.tsx](cococacao-kuchil/src/components/coworking/QuickCheckInButton.tsx)
+
+No se cambia su comportamiento de check-in (sigue permitiendo básico con 0/varias tarifas). El saneo posterior lo cubre. **Único cambio:** cuando `applicableTarifas.length !== 1`, escribir en el `audit_logs` que ya inserta ([línea 181](cococacao-kuchil/src/components/coworking/QuickCheckInButton.tsx:181)) el metadato `sin_snapshot: true` para trazabilidad. En el objeto `metadata` de ese insert, añadir la línea:
+```typescript
+sin_snapshot: tarifaSnapshot === null,
+```
+Esto no altera lógica; solo deja rastro.
+
+---
+
+## PARTE 2 — RPC de saneo server-side
+
+### 2.1 [CREATE] `supabase/migrations/20260718000000_sanear_tarifa_snapshot_sesion.sql`
+
+Función `SECURITY DEFINER` que reconstruye y persiste el snapshot. Autoriza roles `administrador`, `supervisor`, `caja`, `recepcion`. Contenido literal completo:
+
+```sql
+CREATE OR REPLACE FUNCTION public.sanear_tarifa_snapshot_sesion(p_session_id uuid)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_session RECORD;
+  v_tarifa RECORD;
+  v_area RECORD;
+  v_snapshot jsonb;
+  v_origen text;
+  v_nombre text;
+  v_precio numeric;
+  v_metodo text;
+  v_tolerancia integer;
+BEGIN
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION 'No autenticado' USING ERRCODE = '28000';
+  END IF;
+  IF NOT (has_role(v_user,'administrador'::app_role) OR has_role(v_user,'supervisor'::app_role)
+          OR has_role(v_user,'caja'::app_role) OR has_role(v_user,'recepcion'::app_role)) THEN
+    RAISE EXCEPTION 'Permisos insuficientes para sanear tarifa' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_session FROM public.coworking_sessions WHERE id = p_session_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Sesión no encontrada'; END IF;
+
+  -- Idempotencia: si ya tiene snapshot, devolver el existente sin tocar nada.
+  IF v_session.tarifa_snapshot IS NOT NULL THEN
+    RETURN json_build_object('ok', true, 'ya_tenia', true, 'snapshot', v_session.tarifa_snapshot);
+  END IF;
+
+  -- Solo estados operables.
+  IF v_session.estado NOT IN ('activo'::coworking_estado, 'pendiente_pago'::coworking_estado) THEN
+    RAISE EXCEPTION 'La sesión no admite saneo (estado: %)', v_session.estado;
+  END IF;
+
+  -- Ruta 1: tarifa_id presente → reconstruir desde tarifas_coworking.
+  IF v_session.tarifa_id IS NOT NULL THEN
+    SELECT * INTO v_tarifa FROM public.tarifas_coworking WHERE id = v_session.tarifa_id;
+    IF FOUND THEN
+      v_origen := 'tarifa_id';
+      v_nombre := v_tarifa.nombre;
+      v_precio := v_tarifa.precio_base;
+      v_metodo := COALESCE(v_tarifa.metodo_fraccion, '15_min');
+      v_tolerancia := COALESCE(v_tarifa.minutos_tolerancia, 0);
+      v_snapshot := jsonb_build_object(
+        'nombre', v_nombre,
+        'precio_base', v_precio,
+        'tipo_cobro', v_tarifa.tipo_cobro::text,
+        'metodo_fraccion', v_metodo,
+        'minutos_tolerancia', v_tolerancia,
+        'amenities', '[]'::jsonb,
+        'upsells_disponibles', '[]'::jsonb,
+        'reconstruido', true,
+        'origen', v_origen,
+        'snapshot_at', now()
+      );
+    END IF;
+  END IF;
+
+  -- Ruta 2: fallback por precio de área (tarifa_id null o tarifa borrada).
+  IF v_snapshot IS NULL THEN
+    SELECT * INTO v_area FROM public.areas_coworking WHERE id = v_session.area_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Área de la sesión no encontrada'; END IF;
+    v_origen := 'area_fallback';
+    v_snapshot := jsonb_build_object(
+      'nombre', 'Tarifa por hora (' || v_area.nombre_area || ')',
+      'precio_base', v_area.precio_por_hora,
+      'tipo_cobro', 'hora',
+      'metodo_fraccion', '15_min',
+      'minutos_tolerancia', 0,
+      'amenities', '[]'::jsonb,
+      'upsells_disponibles', '[]'::jsonb,
+      'reconstruido', true,
+      'origen', v_origen,
+      'snapshot_at', now()
+    );
+  END IF;
+
+  UPDATE public.coworking_sessions
+     SET tarifa_snapshot = v_snapshot, updated_at = now()
+   WHERE id = p_session_id;
+
+  INSERT INTO public.audit_logs (user_id, accion, descripcion, metadata)
+  VALUES (v_user, 'sanear_tarifa_snapshot',
+    format('Tarifa reconstruida (%s) para sesión %s — precio_base $%s',
+           v_origen, v_session.cliente_nombre, (v_snapshot->>'precio_base')),
+    jsonb_build_object('session_id', p_session_id, 'origen', v_origen,
+      'snapshot', v_snapshot, 'transaccional', true));
+
+  RETURN json_build_object('ok', true, 'ya_tenia', false, 'origen', v_origen, 'snapshot', v_snapshot);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.sanear_tarifa_snapshot_sesion(uuid) TO authenticated;
+```
+
+Propiedades garantizadas: **idempotente** (si ya hay snapshot no lo pisa), **atómica**, **auditada**, y con `FOR UPDATE` para evitar carreras entre dos pestañas de caja.
+
+---
+
+## PARTE 3 — Backfill único de las 4 sesiones actuales
+
+### 3.1 [CREATE] `supabase/migrations/20260718000100_backfill_snapshots_pendientes.sql`
+
+Sanea de golpe toda sesión `activo`/`pendiente_pago` con snapshot null, reutilizando la lógica de la RPC vía un bloque que replica las dos rutas. Contenido literal:
+
+```sql
+DO $$
+DECLARE
+  s RECORD;
+  v_area RECORD;
+  v_tarifa RECORD;
+  v_snapshot jsonb;
+BEGIN
+  FOR s IN
+    SELECT * FROM public.coworking_sessions
+    WHERE tarifa_snapshot IS NULL
+      AND estado IN ('activo'::coworking_estado, 'pendiente_pago'::coworking_estado)
+  LOOP
+    v_snapshot := NULL;
+    IF s.tarifa_id IS NOT NULL THEN
+      SELECT * INTO v_tarifa FROM public.tarifas_coworking WHERE id = s.tarifa_id;
+      IF FOUND THEN
+        v_snapshot := jsonb_build_object(
+          'nombre', v_tarifa.nombre, 'precio_base', v_tarifa.precio_base,
+          'tipo_cobro', v_tarifa.tipo_cobro::text,
+          'metodo_fraccion', COALESCE(v_tarifa.metodo_fraccion,'15_min'),
+          'minutos_tolerancia', COALESCE(v_tarifa.minutos_tolerancia,0),
+          'amenities','[]'::jsonb,'upsells_disponibles','[]'::jsonb,
+          'reconstruido', true, 'origen','tarifa_id','snapshot_at', now());
+      END IF;
+    END IF;
+    IF v_snapshot IS NULL THEN
+      SELECT * INTO v_area FROM public.areas_coworking WHERE id = s.area_id;
+      v_snapshot := jsonb_build_object(
+        'nombre','Tarifa por hora (' || COALESCE(v_area.nombre_area,'área') || ')',
+        'precio_base', COALESCE(v_area.precio_por_hora,0),
+        'tipo_cobro','hora','metodo_fraccion','15_min','minutos_tolerancia',0,
+        'amenities','[]'::jsonb,'upsells_disponibles','[]'::jsonb,
+        'reconstruido', true,'origen','area_fallback','snapshot_at', now());
+    END IF;
+
+    UPDATE public.coworking_sessions
+       SET tarifa_snapshot = v_snapshot, updated_at = now()
+     WHERE id = s.id;
+
+    INSERT INTO public.audit_logs (user_id, accion, descripcion, metadata)
+    VALUES (s.usuario_id, 'sanear_tarifa_snapshot_backfill',
+      format('Backfill snapshot (%s) sesión %s', v_snapshot->>'origen', s.cliente_nombre),
+      jsonb_build_object('session_id', s.id, 'origen', v_snapshot->>'origen',
+        'snapshot', v_snapshot, 'transaccional', true));
+  END LOOP;
+END $$;
+```
+
+Tras aplicar esta migración las 4 sesiones quedan cobrables **sin** intervención del cajero.
+
+---
+
+## PARTE 4 — UI de caja: transparencia en lugar de saneo silencioso
+
+### 4.1 [MODIFY] [CoworkingSessionSelector.tsx](cococacao-kuchil/src/components/caja/CoworkingSessionSelector.tsx)
+
+**Cambio A — `fetchSessions`:** añadir `precio_por_hora` al select de áreas ([línea 83](cococacao-kuchil/src/components/caja/CoworkingSessionSelector.tsx:83)):
+```typescript
+.select('id, nombre_area, es_privado, precio_por_hora')
+```
+Añadir al tipo `ActiveSession` ([línea 25](cococacao-kuchil/src/components/caja/CoworkingSessionSelector.tsx:25)) el campo `precio_por_hora: number;` y mapearlo (`precio_por_hora: area?.precio_por_hora ?? 0`). *(No se usa para calcular en el cliente; se muestra en la confirmación para que el cajero vea el precio antes de aceptar.)*
+
+**Cambio B — reemplazar el bloque de bloqueo** ([líneas 151-158](cococacao-kuchil/src/components/caja/CoworkingSessionSelector.tsx:151)). En lugar de mostrar el toast destructivo y `return`, se llama a la RPC de saneo y se pide confirmación explícita. Reemplazar exactamente ese bloque por:
+
+```typescript
+let snapshot = session.tarifa_snapshot;
+
+if (!snapshot) {
+  // Confirmación explícita antes de cobrar una tarifa reconstruida.
+  const precioRef = session.precio_por_hora ?? 0;
+  const proceder = window.confirm(
+    `Esta sesión no tiene tarifa asignada.\n\n` +
+    `Se reconstruirá una tarifa por hora de $${precioRef.toFixed(2)} ` +
+    `(precio del área "${session.area_nombre}").\n\n` +
+    `¿Deseas recuperar la tarifa y continuar con el cobro?`
+  );
+  if (!proceder) return;
+
+  const { data, error } = await supabase.rpc('sanear_tarifa_snapshot_sesion' as any, {
+    p_session_id: session.id,
+  });
+  if (error || !data) {
+    toast({
+      variant: 'destructive',
+      title: 'No se pudo recuperar la tarifa',
+      description: error?.message ?? 'Intenta de nuevo o contacta al administrador.',
+    });
+    return;
+  }
+  snapshot = (data as any).snapshot as TarifaSnapshot;
+  toast({
+    title: 'Tarifa recuperada',
+    description: `Se asignó ${(snapshot as any).nombre} · base $${Number((snapshot as any).precio_base).toFixed(2)}.`,
+  });
+  // Refrescar la lista para reflejar el snapshot persistido.
+  fetchSessions();
+}
+```
+
+**Cambio C:** en el resto de `doImport`, sustituir toda lectura de `session.tarifa_snapshot` por la variable local `snapshot` (ya lo es a partir de [línea 172](cococacao-kuchil/src/components/caja/CoworkingSessionSelector.tsx:172); verificar que `tarifaNombre`, `precioBase`, etc. usan `snapshot`, no `session.tarifa_snapshot`). Como `snapshot` ya no es `null` tras el bloque, el flujo de armado del carrito continúa sin más cambios.
+
+> Nota determinística: se usa `window.confirm` (ya se usa `AlertDialog` en el componente, pero `confirm` es síncrono y no requiere estado nuevo; si el equipo exige `AlertDialog`, es un cambio de presentación equivalente y **no** altera la lógica descrita). Elijo `window.confirm` para no introducir estado ni ramas nuevas.
+
+---
+
+## PARTE 5 — Regenerar tipos (obligatorio)
+
+### 5.1 [MODIFY] `src/integrations/supabase/types.ts`
+
+Añadir la firma de la nueva función para que `supabase.rpc('sanear_tarifa_snapshot_sesion')` compile sin el `as any` a futuro. Localizar el bloque `Functions:` y agregar:
+```typescript
+sanear_tarifa_snapshot_sesion: {
+  Args: { p_session_id: string }
+  Returns: Json
+}
+```
+*(Mientras tanto, el `as any` del Cambio B evita el bloqueo de compilación; este paso lo formaliza.)*
+
+---
+
+## Plan de verificación (determinístico)
+
+Ejecutar en orden. Cada paso tiene resultado esperado exacto.
+
+**V1 — Backfill.** Aplicar migraciones 2.1 y 3.1. En SQL:
+```sql
+SELECT count(*) FROM coworking_sessions
+WHERE tarifa_snapshot IS NULL AND estado IN ('activo','pendiente_pago');
+```
+→ Resultado esperado: **0**.
+
+**V2 — Cobro de las 4 sesiones previas.** En Caja → Sesiones Pendientes de Pago, agregar al ticket cada una de las 4 sesiones. → Resultado esperado: se agregan sin diálogo (ya tienen snapshot), con línea "Tarifa por hora (<área>)" y cargo = `precio_por_hora × horas × pax`.
+
+**V3 — Auditoría.** 
+```sql
+SELECT accion, metadata->>'origen', metadata->>'session_id'
+FROM audit_logs WHERE accion IN ('sanear_tarifa_snapshot_backfill','sanear_tarifa_snapshot')
+ORDER BY created_at DESC;
+```
+→ Una fila por sesión saneada, con `origen` = `area_fallback` o `tarifa_id`.
+
+**V4 — Camino en vivo (RPC + confirmación).** Crear sesión nueva en un área **sin tarifas configuradas** (fuerza snapshot null), hacer checkout, ir a Caja, agregar al ticket. → Aparece el `confirm` con el precio del área; al aceptar, toast "Tarifa recuperada" y la sesión entra al carrito. Repetir el intento: ya no aparece el `confirm` (idempotencia).
+
+**V5 — Prevención upstream.** En CheckInDialog, elegir un área **con** tarifas aplicables y sin membresía, dejar la tarifa sin seleccionar. → El botón "Registrar entrada" está deshabilitado; si se fuerza el submit, aparece toast "Selecciona una tarifa" y no se crea la sesión.
+
+**V6 — RLS / cambio de turno.** Con un usuario `caja` que **no** es `usuario_id` de la sesión (simular: crear sesión con usuario A, sanear con usuario B rol caja). → La RPC ejecuta y persiste correctamente (no depende de la política UPDATE de tabla). Confirmar que `tarifa_snapshot` quedó escrito.
+
+**V7 — No regresión.** Cobrar una sesión que **sí** tenía snapshot original (con tarifa real y amenities). → Cargo idéntico al comportamiento previo; amenities intactos; no se dispara la RPC de saneo.
+
+---
+
+## Resumen de archivos
+
+| Acción | Archivo |
+|---|---|
+| MODIFY | [CheckInDialog.tsx](cococacao-kuchil/src/components/coworking/CheckInDialog.tsx) — tarifa obligatoria |
+| MODIFY | [QuickCheckInButton.tsx](cococacao-kuchil/src/components/coworking/QuickCheckInButton.tsx) — metadato `sin_snapshot` |
+| CREATE | `supabase/migrations/20260718000000_sanear_tarifa_snapshot_sesion.sql` |
+| CREATE | `supabase/migrations/20260718000100_backfill_snapshots_pendientes.sql` |
+| MODIFY | [CoworkingSessionSelector.tsx](cococacao-kuchil/src/components/caja/CoworkingSessionSelector.tsx) — RPC + confirmación + `precio_por_hora` |
+| MODIFY | [types.ts](cococacao-kuchil/src/integrations/supabase/types.ts) — firma RPC |
+
+Diferencias clave vs. tu plan original: (1) el saneo es una **RPC `SECURITY DEFINER`**, no un `UPDATE` cliente que RLS bloquearía en cambios de turno; (2) se **previene el origen** en check-in; (3) **backfill único** en vez de saneo perezoso repetido; (4) **confirmación explícita** del precio antes de cobrar una tarifa reconstruida, en vez de un toast que oculta una decisión de precio; (5) se documenta que el "Paso 1 por `tarifa_id`" casi nunca aplica (las sesiones rotas tienen `tarifa_id` null), por lo que el fallback por área es el camino real y debe ser transparente.
+
+¿Quieres que lo implemente en este orden (migraciones primero para desbloquear las 4, luego UI y prevención)?

@@ -224,6 +224,16 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
         }
       }
 
+      const activeMemCheck = utilizableMembership ?? membershipByArea;
+      if (!activeMemCheck && applicableTarifas.length > 0 && !selectedTarifaId) {
+        toast({
+          variant: 'destructive',
+          title: 'Selecciona una tarifa',
+          description: 'Debes elegir una tarifa antes de registrar la entrada.',
+        });
+        return;
+      }
+
       const fechaInicio = new Date();
       const fechaFinEstimada = new Date(fechaInicio.getTime() + horasNum * 60 * 60 * 1000);
 
@@ -537,7 +547,10 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, membresias
               <Input id="horas" type="number" min={0.5} step={0.5} value={horas} onChange={e => setHoras(e.target.value)} required />
             </div>
           </div>
-          <Button type="submit" className="w-full" disabled={creating || !selectedAreaId || !cliente}>
+          <Button type="submit" className="w-full" disabled={
+            creating || !selectedAreaId || !cliente ||
+            (!(utilizableMembership ?? membershipByArea) && applicableTarifas.length > 0 && !selectedTarifaId)
+          }>
             {creating ? 'Registrando...' : 'Confirmar Entrada'}
           </Button>
         </form>

@@ -35,6 +35,7 @@ interface ActiveSession {
   tarifa_id: string | null;
   tarifa_snapshot: TarifaSnapshot | null;
   monto_acumulado: number;
+  precio_por_hora: number;
 }
 
 interface Props {
@@ -81,7 +82,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
       const areaIds = [...new Set((sessData as any[]).map(s => s.area_id))];
       const { data: areasData } = await supabase
         .from('areas_coworking')
-        .select('id, nombre_area, es_privado')
+        .select('id, nombre_area, es_privado, precio_por_hora')
         .in('id', areaIds);
 
       const areaMap = new Map(areasData?.map(a => [a.id, a]) ?? []);
@@ -95,6 +96,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
           fecha_salida_real: s.fecha_salida_real ?? null,
           tarifa_id: s.tarifa_id ?? null,
           tarifa_snapshot: (s.tarifa_snapshot as TarifaSnapshot | null) ?? null,
+          precio_por_hora: area?.precio_por_hora ?? 0,
         };
       }));
     } catch (e: any) {
@@ -145,16 +147,37 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   };
 
   const doImport = async (session: ActiveSession) => {
-    const snapshot = session.tarifa_snapshot;
-
+    let snapshot = session.tarifa_snapshot;
 
     if (!snapshot) {
-      toast({
-        variant: 'destructive',
-        title: 'Sesión sin tarifa congelada',
-        description: 'Esta sesión no tiene snapshot de tarifa. Pide a un administrador que la cancele y la rehaga.',
+      // Confirmación explícita antes de cobrar una tarifa reconstruida.
+      const precioRef = session.precio_por_hora ?? 0;
+      const proceder = window.confirm(
+        `Esta sesión no tiene tarifa asignada.\n\n` +
+        `Se reconstruirá una tarifa por hora de $${precioRef.toFixed(2)} ` +
+        `(precio del área "${session.area_nombre}").\n\n` +
+        `¿Deseas recuperar la tarifa y continuar con el cobro?`
+      );
+      if (!proceder) return;
+
+      const { data, error } = await supabase.rpc('sanear_tarifa_snapshot_sesion' as any, {
+        p_session_id: session.id,
       });
-      return;
+      if (error || !data) {
+        toast({
+          variant: 'destructive',
+          title: 'No se pudo recuperar la tarifa',
+          description: error?.message ?? 'Intenta de nuevo o contacta al administrador.',
+        });
+        return;
+      }
+      snapshot = (data as any).snapshot as TarifaSnapshot;
+      toast({
+        title: 'Tarifa recuperada',
+        description: `Se asignó ${(snapshot as any).nombre} · base $${Number((snapshot as any).precio_base).toFixed(2)}.`,
+      });
+      // Refrescar la lista para reflejar el snapshot persistido.
+      fetchSessions();
     }
 
     // Frozen checkout time

@@ -186,6 +186,7 @@ export function QuickCheckInButton({ reservacion, area, getAvailablePax, membres
           reservacion_id: reservacion.id,
           area_id: reservacion.area_id,
           tarifa_id: tarifaId,
+          sin_snapshot: tarifaSnapshot === null,
           amenities_aplicados: amenities.length,
           upsells_disponibles: upsells.length,
         },

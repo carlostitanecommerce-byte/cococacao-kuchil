@@ -1701,6 +1701,10 @@ export type Database = {
         }
         Returns: Json
       }
+      sanear_tarifa_snapshot_sesion: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
       unfreeze_checkout_coworking: {
         Args: { p_session_id: string }
         Returns: boolean
