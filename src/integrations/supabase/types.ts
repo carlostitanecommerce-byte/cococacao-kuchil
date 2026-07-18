@@ -1692,6 +1692,10 @@ export type Database = {
         Returns: Json
       }
       revertir_stock_venta: { Args: { _venta_id: string }; Returns: undefined }
+      sanear_tarifa_snapshot_sesion: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
       solicitar_cancelacion_item_sesion: {
         Args: {
           p_cantidad: number
@@ -1699,10 +1703,6 @@ export type Database = {
           p_motivo: string
           p_session_id: string
         }
-        Returns: Json
-      }
-      sanear_tarifa_snapshot_sesion: {
-        Args: { p_session_id: string }
         Returns: Json
       }
       unfreeze_checkout_coworking: {
