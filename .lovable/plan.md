@@ -1,47 +1,19 @@
 ## Objetivo
+Eliminar las dos migraciones duplicadas con nombre de plan y conservar el par con hash que la plataforma registró como aplicado.
 
-Cerrar la solicitud huérfana del 18-jun 19:08 (salida $1,000 "Pago de impresora", caja #28) marcándola como **aprobada** y registrando el movimiento de caja real, sin tocar código ni el cierre histórico de la caja.
+## Verificación previa (ya hecha)
+- `supabase_migrations.schema_migrations` contiene sólo `20260718213145` y `20260718213334` para el 18-jul. Los archivos `20260718000000_*` y `20260718000100_*` NO están registrados como aplicados.
+- Diff entre cada par: idénticos salvo comentarios y newline final. Sin diferencias funcionales.
 
-## Cambios en la base de datos
+## Cambios
+Eliminar del repositorio:
+- `supabase/migrations/20260718000000_sanear_tarifa_snapshot_sesion.sql`
+- `supabase/migrations/20260718000100_backfill_snapshots_pendientes.sql`
 
-Todo se hace con la herramienta de datos (`INSERT` + `UPDATE`), en una sola operación transaccional:
+Conservar (aplicados en BD):
+- `supabase/migrations/20260718213141_8e8f9494-a08e-4b29-b387-f80ea4c51c56.sql`
+- `supabase/migrations/20260718213332_ba187f74-fab8-4037-92e4-f143be19122d.sql`
 
-### 1. Insertar el movimiento en `movimientos_caja`
-
-```sql
-INSERT INTO movimientos_caja (
-  id, caja_id, usuario_id, tipo, monto, motivo, created_at
-) VALUES (
-  gen_random_uuid(),
-  '1d1a6473-20ae-4cf7-9be5-2ad9e059f1a2',  -- caja #28
-  '9b17e836-c319-4b39-8bdf-d9bc761ae746',  -- solicitante = quien aprueba (único disponible)
-  'salida',
-  1000,
-  'Pago de impresora',
-  '2026-06-18 19:08:20.864378+00'          -- misma hora de la solicitud
-)
-RETURNING id;
-```
-
-### 2. Actualizar la solicitud a `aprobada` y vincular el movimiento
-
-```sql
-UPDATE solicitudes_movimiento_caja
-SET estado = 'aprobada',
-    revisado_por = '9b17e836-c319-4b39-8bdf-d9bc761ae746',
-    movimiento_id = <id devuelto por el INSERT anterior>,
-    updated_at = now()
-WHERE id = '43475983-6c00-4f97-b5f0-3b520514190b';
-```
-
-## Consideraciones
-
-- **La caja #28 ya está cerrada** con `monto_cierre = 715`, `diferencia = -985`. Estos valores NO se modifican — quedan como quedaron el día del cierre. El movimiento nuevo solo queda como registro histórico/auditable.
-- El `usuario_id` del movimiento se pone como el solicitante (único usuario conocido en el contexto). Si prefieres otro aprobador, se ajusta antes de ejecutar.
-- No hay cambios de esquema, ni migraciones, ni cambios de código.
-
-## Resultado esperado
-
-- La solicitud desaparece del panel "pendientes" de Caja.
-- Aparece un movimiento de salida de $1,000 con fecha 18-jun 19:08 en la bitácora/movimientos de la caja #28.
-- El cierre histórico de la caja #28 permanece intacto.
+## Verificación post-cambio
+- `ls supabase/migrations/ | grep 20260718` muestra sólo los dos archivos con hash.
+- No se ejecuta ninguna migración nueva (los archivos borrados nunca estuvieron registrados).
