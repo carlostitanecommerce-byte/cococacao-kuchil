@@ -1,19 +1,26 @@
 ## Objetivo
-Eliminar las dos migraciones duplicadas con nombre de plan y conservar el par con hash que la plataforma registró como aplicado.
-
-## Verificación previa (ya hecha)
-- `supabase_migrations.schema_migrations` contiene sólo `20260718213145` y `20260718213334` para el 18-jul. Los archivos `20260718000000_*` y `20260718000100_*` NO están registrados como aplicados.
-- Diff entre cada par: idénticos salvo comentarios y newline final. Sin diferencias funcionales.
+Actualizar `public.cancelar_sesion_coworking(uuid, text, jsonb, uuid, boolean)` aplicando 3 cambios puntuales sobre la versión vigente (`20260716032004`). Se conserva sin modificar el resto del cuerpo (mermas de entregados, reintegro de no entregados, borrado de líneas abiertas, audit final, GRANT) para no regresar el fix del Bug 2.
 
 ## Cambios
-Eliminar del repositorio:
-- `supabase/migrations/20260718000000_sanear_tarifa_snapshot_sesion.sql`
-- `supabase/migrations/20260718000100_backfill_snapshots_pendientes.sql`
+1. **Aceptar `pendiente_pago`**: el guard de estado pasa de `<> 'activo'` a `NOT IN ('activo','pendiente_pago')`, con `ERRCODE '22023'` y mensaje actualizado.
+2. **Preservar `fecha_salida_real`**: en el UPDATE final usar `fecha_salida_real = COALESCE(fecha_salida_real, now())` para no pisar el timestamp real de sesiones que ya hicieron checkout.
+3. **Caso idempotente "sesión ya cancelada + solicitud pendiente"**: insertar, entre el `IF NOT FOUND` y el guard de estado, el bloque que si `estado='cancelado' AND p_solicitud_id IS NOT NULL`:
+   - Exige rol administrador (`ERRCODE '42501'` si no).
+   - Marca la solicitud como `aprobada`, con `motivo_rechazo` por defecto "Sesión ya cancelada previamente — solicitud cerrada".
+   - Inserta audit `cerrar_solicitud_obsoleta`.
+   - Retorna `{ ok:true, ya_cancelada:true, mermas_creadas:0, entregados_count:0 }`.
 
-Conservar (aplicados en BD):
-- `supabase/migrations/20260718213141_8e8f9494-a08e-4b29-b387-f80ea4c51c56.sql`
-- `supabase/migrations/20260718213332_ba187f74-fab8-4037-92e4-f143be19122d.sql`
+Sin cambios de firma, nombres de variables ni lógica de inventario. Sin cambios de frontend.
 
-## Verificación post-cambio
-- `ls supabase/migrations/ | grep 20260718` muestra sólo los dos archivos con hash.
-- No se ejecuta ninguna migración nueva (los archivos borrados nunca estuvieron registrados).
+## Entregable
+Nueva migración `supabase/migrations/<timestamp>_fix_cancelar_sesion_coworking_pendiente_pago.sql` que hace `CREATE OR REPLACE FUNCTION public.cancelar_sesion_coworking(...)` con el cuerpo vigente + los 3 bloques anteriores, terminando en:
+
+```sql
+GRANT EXECUTE ON FUNCTION public.cancelar_sesion_coworking(uuid, text, jsonb, uuid, boolean) TO authenticated;
+```
+
+## Verificación
+- **V1**: Cancelar una sesión en `pendiente_pago` → ok, no lanza el error previo.
+- **V2**: Cancelar una sesión que ya tenía `fecha_salida_real` → el timestamp original se conserva.
+- **V3**: Aprobar una solicitud sobre una sesión ya `cancelado` siendo administrador → retorna `ya_cancelada:true`, cierra la solicitud, escribe audit `cerrar_solicitud_obsoleta`. Con rol no-admin → `ERRCODE 42501`.
+- **V4 (no regresión)**: Cancelar sesión `activo` con entregados y no-entregados → mermas y reintegros idénticos al comportamiento actual.
